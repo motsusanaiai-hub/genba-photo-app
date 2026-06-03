@@ -1,16 +1,21 @@
 import { useAuthStore } from '@/store/authStore'
 import { useProjectStore } from '@/store/projectStore'
+import { usePhotoStore } from '@/store/photoStore'
 import type { ProjectFormData, ProjectWithCount } from '@/types/project'
 
 export function useProjects() {
   const user = useAuthStore((s) => s.user)
   const { projects, addProject, updateProject, deleteProject } = useProjectStore()
+  const { photos } = usePhotoStore()
 
   // ログインユーザーのプロジェクトのみ、更新日降順
   const userProjects: ProjectWithCount[] = projects
     .filter((p) => p.user_id === (user?.id ?? ''))
     .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
-    .map((p) => ({ ...p, photo_count: 0 })) // Week 3 で photos から計算
+    .map((p) => ({
+      ...p,
+      photo_count: photos.filter((ph) => ph.project_id === p.id).length,
+    }))
 
   const createProject = (data: ProjectFormData) => {
     const now = new Date().toISOString()
