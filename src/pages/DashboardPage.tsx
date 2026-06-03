@@ -1,10 +1,20 @@
 import { useNavigate } from 'react-router-dom'
 import { FolderOpen, Plus } from 'lucide-react'
+import { useProjects } from '@/hooks/useProjects'
+import { ProjectCard } from '@/components/project/ProjectCard'
 import { Button } from '@/components/ui/button'
 import { Header } from '@/components/layout/Header'
 
 export function DashboardPage() {
   const navigate = useNavigate()
+  const { projects, removeProject } = useProjects()
+
+  const handleDelete = (projectId: string, projectName: string) => {
+    const confirmed = window.confirm(
+      `「${projectName}」を削除しますか？\n\nこの操作は取り消せません。`,
+    )
+    if (confirmed) removeProject(projectId)
+  }
 
   return (
     <>
@@ -19,8 +29,21 @@ export function DashboardPage() {
       />
 
       <div className="p-4 lg:p-6">
-        {/* Week 2でプロジェクト一覧を実装。現時点は空状態のみ */}
-        <EmptyState onAction={() => navigate('/projects/new')} />
+        {projects.length === 0 ? (
+          <EmptyState onAction={() => navigate('/projects/new')} />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {projects.map((project) => (
+              <ProjectCard
+                key={project.id}
+                project={project}
+                onClick={() => navigate(`/projects/${project.id}`)}
+                onEdit={() => navigate(`/projects/${project.id}/edit`)}
+                onDelete={() => handleDelete(project.id, project.name)}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* スマホ用 FAB */}
