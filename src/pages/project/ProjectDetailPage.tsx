@@ -30,7 +30,7 @@ export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const { getProject } = useProjects()
-  const { photos, filtered, removePhoto, setComment } = usePhotos(projectId ?? '')
+  const { photos, filtered, removePhoto, setComment, swapPhotoOrder } = usePhotos(projectId ?? '')
 
   const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>('all')
   const [viewMode, setViewMode] = useState<ViewMode>(
@@ -48,6 +48,15 @@ export function ProjectDetailPage() {
   if (!project) return <Navigate to="/" replace />
 
   const displayPhotos = filtered(phaseFilter)
+
+  // displayPhotos ベースで隣接判定 → フィルター中も正しく並び替えられる
+  const handleMovePhoto = (photoId: string, direction: 'up' | 'down') => {
+    const idx = displayPhotos.findIndex((p) => p.id === photoId)
+    if (direction === 'up' && idx <= 0) return
+    if (direction === 'down' && idx >= displayPhotos.length - 1) return
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1
+    swapPhotoOrder(displayPhotos[idx].id, displayPhotos[swapIdx].id)
+  }
 
   const phaseCount = (phase: Phase) => photos.filter((p) => p.phase === phase).length
 
@@ -153,6 +162,7 @@ export function ProjectDetailPage() {
           photos={displayPhotos}
           onPhotoClick={setLightboxPhoto}
           onCommentChange={setComment}
+          onMovePhoto={handleMovePhoto}
         />
       ) : (
         <PhotoGrid photos={displayPhotos} onPhotoClick={setLightboxPhoto} />

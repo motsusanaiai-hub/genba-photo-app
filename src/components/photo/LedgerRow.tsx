@@ -1,6 +1,8 @@
 import { useRef, useState, useEffect, useLayoutEffect } from 'react'
+import { ChevronUp, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PhaseBadge } from './PhaseBadge'
+import { TemplateDropdown } from './TemplateDropdown'
 import type { Photo } from '@/types/photo'
 
 interface Props {
@@ -8,17 +10,28 @@ interface Props {
   index: number
   onPhotoClick: (photo: Photo) => void
   onCommentChange: (photoId: string, comment: string) => void
+  prevComment?: string    // 「上の写真と同じ」用
+  onMoveUp?: () => void   // undefined = ボタン非表示（先頭行）
+  onMoveDown?: () => void // undefined = ボタン非表示（末尾行）
 }
 
-export function LedgerRow({ photo, index, onPhotoClick, onCommentChange }: Props) {
+export function LedgerRow({
+  photo,
+  index,
+  onPhotoClick,
+  onCommentChange,
+  prevComment,
+  onMoveUp,
+  onMoveDown,
+}: Props) {
   const [local, setLocal] = useState(photo.comment)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isFirst = useRef(true)
-  // Ref pattern: keeps callback fresh without adding it to effect deps
+  // Ref pattern: callback を deps に入れず常に最新版を参照
   const callbackRef = useRef(onCommentChange)
   callbackRef.current = onCommentChange
 
-  // Debounced auto-save: fires 400ms after last keystroke
+  // 400ms デバウンス自動保存
   useEffect(() => {
     if (isFirst.current) {
       isFirst.current = false
@@ -28,7 +41,7 @@ export function LedgerRow({ photo, index, onPhotoClick, onCommentChange }: Props
     return () => clearTimeout(t)
   }, [local, photo.id])
 
-  // Auto-resize textarea to content height
+  // テキストエリア高さ自動伸縮
   useLayoutEffect(() => {
     const el = textareaRef.current
     if (!el) return
@@ -49,11 +62,37 @@ export function LedgerRow({ photo, index, onPhotoClick, onCommentChange }: Props
 
   return (
     <div className="flex border-b last:border-b-0">
-      {/* 番号列 */}
-      <div className="w-9 lg:w-11 shrink-0 flex items-start justify-center pt-3.5">
-        <span className="text-xs font-mono text-muted-foreground select-none">
+      {/* 番号列（▲▼ + 連番） */}
+      <div className="w-12 shrink-0 flex flex-col items-center pt-1.5 gap-0.5">
+        {onMoveUp ? (
+          <button
+            type="button"
+            onClick={onMoveUp}
+            className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            aria-label="1つ上に移動"
+          >
+            <ChevronUp className="h-3.5 w-3.5" />
+          </button>
+        ) : (
+          <div className="h-5" />
+        )}
+
+        <span className="text-xs font-mono text-muted-foreground select-none leading-none py-0.5">
           {String(index + 1).padStart(2, '0')}
         </span>
+
+        {onMoveDown ? (
+          <button
+            type="button"
+            onClick={onMoveDown}
+            className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            aria-label="1つ下に移動"
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+        ) : (
+          <div className="h-5" />
+        )}
       </div>
 
       {/* メイン列 */}
@@ -87,7 +126,7 @@ export function LedgerRow({ photo, index, onPhotoClick, onCommentChange }: Props
           </div>
         </div>
 
-        {/* 下段: コメント入力 */}
+        {/* 下段: コメント入力 + テンプレートボタン */}
         <div className="flex items-start gap-2">
           <label
             htmlFor={`comment-${photo.id}`}
@@ -110,6 +149,13 @@ export function LedgerRow({ photo, index, onPhotoClick, onCommentChange }: Props
                 ? 'bg-amber-50 border-amber-200 focus:ring-amber-400'
                 : 'bg-background border-input',
             )}
+          />
+          {/* テンプレートドロップダウン */}
+          <TemplateDropdown
+            currentText={local}
+            phase={photo.phase}
+            prevComment={prevComment}
+            onSelect={(text) => setLocal(text)}
           />
         </div>
       </div>

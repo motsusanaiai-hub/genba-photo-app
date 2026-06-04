@@ -5,9 +5,10 @@ interface Props {
   photos: Photo[]
   onPhotoClick: (photo: Photo) => void
   onCommentChange: (photoId: string, comment: string) => void
+  onMovePhoto?: (photoId: string, direction: 'up' | 'down') => void  // optional: なければ▲▼非表示
 }
 
-export function LedgerView({ photos, onPhotoClick, onCommentChange }: Props) {
+export function LedgerView({ photos, onPhotoClick, onCommentChange, onMovePhoto }: Props) {
   const commented = photos.filter((p) => p.comment.trim()).length
   const allDone = photos.length > 0 && commented === photos.length
 
@@ -18,11 +19,11 @@ export function LedgerView({ photos, onPhotoClick, onCommentChange }: Props) {
         <span>全 {photos.length} 枚</span>
         <span>·</span>
         <span>
-          コメント入力済み: <span className={allDone ? 'text-green-600 font-medium' : ''}>{commented}</span> / {photos.length} 枚
+          コメント入力済み:{' '}
+          <span className={allDone ? 'text-green-600 font-medium' : ''}>{commented}</span>{' '}
+          / {photos.length} 枚
         </span>
-        {allDone && (
-          <span className="text-green-600 font-medium">· 全て完了</span>
-        )}
+        {allDone && <span className="text-green-600 font-medium">· 全て完了</span>}
       </div>
 
       {/* 台帳行リスト */}
@@ -34,6 +35,17 @@ export function LedgerView({ photos, onPhotoClick, onCommentChange }: Props) {
             index={index}
             onPhotoClick={onPhotoClick}
             onCommentChange={onCommentChange}
+            prevComment={index > 0 ? photos[index - 1].comment : undefined}
+            onMoveUp={
+              onMovePhoto && index > 0
+                ? () => onMovePhoto(photo.id, 'up')
+                : undefined
+            }
+            onMoveDown={
+              onMovePhoto && index < photos.length - 1
+                ? () => onMovePhoto(photo.id, 'down')
+                : undefined
+            }
           />
         ))}
       </div>

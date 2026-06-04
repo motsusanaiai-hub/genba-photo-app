@@ -56,15 +56,14 @@ export function usePhotos(projectId: string) {
     addPhotos(newPhotos)
   }
 
-  const movePhoto = (photoId: string, direction: 'up' | 'down') => {
-    const idx = projectPhotos.findIndex((p) => p.id === photoId)
-    if (direction === 'up' && idx <= 0) return
-    if (direction === 'down' && idx >= projectPhotos.length - 1) return
-    const swapIdx = direction === 'up' ? idx - 1 : idx + 1
-    const curr = projectPhotos[idx]
-    const swap = projectPhotos[swapIdx]
-    updatePhoto(curr.id, { sort_order: swap.sort_order })
-    updatePhoto(swap.id, { sort_order: curr.sort_order })
+  // 呼び出し側が隣接判定を行い、2つの写真IDを渡す設計
+  // → フィルター中の並び替えでも正しく動く
+  const swapPhotoOrder = (idA: string, idB: string) => {
+    const a = projectPhotos.find((p) => p.id === idA)
+    const b = projectPhotos.find((p) => p.id === idB)
+    if (!a || !b) return
+    updatePhoto(a.id, { sort_order: b.sort_order })
+    updatePhoto(b.id, { sort_order: a.sort_order })
   }
 
   const removePhoto = async (photoId: string) => {
@@ -84,7 +83,7 @@ export function usePhotos(projectId: string) {
     photos: projectPhotos,
     filtered,
     uploadPhotos,
-    movePhoto,
+    swapPhotoOrder,
     removePhoto,
     setPhase,
     setComment,
