@@ -9,4 +9,8 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  // ExcelJS がブラウザ環境で global を参照するためのポリフィル
+  define: {
+    global: 'globalThis',
+  },
 })

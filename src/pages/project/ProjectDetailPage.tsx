@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, Navigate } from 'react-router-dom'
 import { ChevronLeft, Camera, Pencil, Plus, LayoutGrid, List } from 'lucide-react'
+import { ExportButton } from '@/components/project/ExportButton'
 import { useProjects } from '@/hooks/useProjects'
 import { usePhotos } from '@/hooks/usePhotos'
 import { Header } from '@/components/layout/Header'
@@ -71,6 +72,7 @@ export function ProjectDetailPage() {
         }
         right={
           <div className="flex items-center gap-1">
+            {/* PC: 写真追加ボタン */}
             <Button
               size="sm"
               className="hidden lg:flex gap-1.5"
@@ -79,6 +81,11 @@ export function ProjectDetailPage() {
               <Plus className="h-4 w-4" />
               写真を追加
             </Button>
+            {/* Excel出力ボタン（写真が1枚以上ある場合のみ表示） */}
+            {photos.length > 0 && (
+              <ExportButton project={project} photos={photos} />
+            )}
+            {/* 編集ボタン */}
             <Button
               variant="ghost"
               size="icon"
