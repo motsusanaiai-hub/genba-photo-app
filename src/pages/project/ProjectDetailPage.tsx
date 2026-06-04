@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams, Navigate } from 'react-router-dom'
-import { ChevronLeft, Camera, Pencil, Plus } from 'lucide-react'
+import { ChevronLeft, Camera, Pencil, Plus, LayoutGrid, List } from 'lucide-react'
 import { useProjects } from '@/hooks/useProjects'
 import { usePhotos } from '@/hooks/usePhotos'
 import { Header } from '@/components/layout/Header'
 import { PhotoGrid } from '@/components/photo/PhotoGrid'
+import { LedgerView } from '@/components/photo/LedgerView'
 import { PhotoUploadModal } from '@/components/photo/PhotoUploadModal'
 import { PhotoLightbox } from '@/components/photo/PhotoLightbox'
 import { PhaseBadge } from '@/components/photo/PhaseBadge'
@@ -14,6 +15,7 @@ import { PHASE_CONFIG, type Phase } from '@/types/photo'
 import type { Photo } from '@/types/photo'
 
 type PhaseFilter = 'all' | Phase
+type ViewMode = 'grid' | 'ledger'
 
 const TABS: { value: PhaseFilter; label: string }[] = [
   { value: 'all',    label: '全て' },
@@ -22,17 +24,27 @@ const TABS: { value: PhaseFilter; label: string }[] = [
   { value: 'after',  label: PHASE_CONFIG.after.label },
 ]
 
+const VIEW_MODE_KEY = 'genba-view-mode'
+
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const { getProject } = useProjects()
-  const { photos, filtered, removePhoto } = usePhotos(projectId ?? '')
+  const { photos, filtered, removePhoto, setComment } = usePhotos(projectId ?? '')
 
   const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>('all')
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    () => (localStorage.getItem(VIEW_MODE_KEY) as ViewMode | null) ?? 'grid',
+  )
   const [showUpload, setShowUpload] = useState(false)
   const [lightboxPhoto, setLightboxPhoto] = useState<Photo | null>(null)
 
   const project = getProject(projectId ?? '')
+
+  useEffect(() => {
+    localStorage.setItem(VIEW_MODE_KEY, viewMode)
+  }, [viewMode])
+
   if (!project) return <Navigate to="/" replace />
 
   const displayPhotos = filtered(phaseFilter)
@@ -50,7 +62,6 @@ export function ProjectDetailPage() {
         }
         right={
           <div className="flex items-center gap-1">
-            {/* PC: 写真追加ボタン */}
             <Button
               size="sm"
               className="hidden lg:flex gap-1.5"
@@ -59,7 +70,6 @@ export function ProjectDetailPage() {
               <Plus className="h-4 w-4" />
               写真を追加
             </Button>
-            {/* 編集ボタン */}
             <Button
               variant="ghost"
               size="icon"
@@ -72,31 +82,64 @@ export function ProjectDetailPage() {
         }
       />
 
-      {/* フェーズフィルタータブ */}
+      {/* フェーズフィルタータブ + ビュー切り替え */}
       <div className="border-b bg-background sticky top-14 z-30">
-        <div className="flex overflow-x-auto">
-          {TABS.map(({ value, label }) => {
-            const count = value === 'all' ? photos.length : phaseCount(value as Phase)
-            return (
-              <button
-                key={value}
-                onClick={() => setPhaseFilter(value)}
-                className={cn(
-                  'flex items-center gap-1.5 px-4 py-3 text-sm whitespace-nowrap border-b-2 transition-colors shrink-0',
-                  phaseFilter === value
-                    ? 'border-primary text-foreground font-medium'
-                    : 'border-transparent text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {value !== 'all' ? (
-                  <PhaseBadge phase={value as Phase} size="sm" />
-                ) : (
-                  <span>{label}</span>
-                )}
-                <span className="text-xs text-muted-foreground">（{count}）</span>
-              </button>
-            )
-          })}
+        <div className="flex items-center">
+          {/* フェーズタブ */}
+          <div className="flex overflow-x-auto flex-1">
+            {TABS.map(({ value, label }) => {
+              const count = value === 'all' ? photos.length : phaseCount(value as Phase)
+              return (
+                <button
+                  key={value}
+                  onClick={() => setPhaseFilter(value)}
+                  className={cn(
+                    'flex items-center gap-1.5 px-4 py-3 text-sm whitespace-nowrap border-b-2 transition-colors shrink-0',
+                    phaseFilter === value
+                      ? 'border-primary text-foreground font-medium'
+                      : 'border-transparent text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {value !== 'all' ? (
+                    <PhaseBadge phase={value as Phase} size="sm" />
+                  ) : (
+                    <span>{label}</span>
+                  )}
+                  <span className="text-xs text-muted-foreground">（{count}）</span>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* ビュー切り替えボタン */}
+          <div className="flex items-center gap-0.5 px-2 shrink-0 border-l ml-1">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={cn(
+                'p-1.5 rounded transition-colors',
+                viewMode === 'grid'
+                  ? 'text-foreground bg-muted'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+              aria-label="グリッド表示"
+              aria-pressed={viewMode === 'grid'}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('ledger')}
+              className={cn(
+                'p-1.5 rounded transition-colors',
+                viewMode === 'ledger'
+                  ? 'text-foreground bg-muted'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+              aria-label="台帳表示"
+              aria-pressed={viewMode === 'ledger'}
+            >
+              <List className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -105,6 +148,12 @@ export function ProjectDetailPage() {
         <PhotoEmptyState onUpload={() => setShowUpload(true)} />
       ) : displayPhotos.length === 0 ? (
         <FilterEmptyState phase={phaseFilter as Phase} onClear={() => setPhaseFilter('all')} />
+      ) : viewMode === 'ledger' ? (
+        <LedgerView
+          photos={displayPhotos}
+          onPhotoClick={setLightboxPhoto}
+          onCommentChange={setComment}
+        />
       ) : (
         <PhotoGrid photos={displayPhotos} onPhotoClick={setLightboxPhoto} />
       )}
@@ -134,7 +183,6 @@ export function ProjectDetailPage() {
           onChange={setLightboxPhoto}
           onDelete={async (photoId) => {
             await removePhoto(photoId)
-            // ライトボックス側で次の写真へ移動 or 閉じる処理を行う
           }}
         />
       )}
