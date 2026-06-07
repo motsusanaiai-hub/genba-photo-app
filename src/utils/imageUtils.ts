@@ -30,12 +30,49 @@ export async function generateThumbnail(
   }
 }
 
+/**
+ * Excel 出力用に 600px JPEG Blob を生成する。
+ * 画像読み込みに失敗した場合（HEIC 等）は null を返す。
+ */
+export async function generateCompressedImage(file: File): Promise<Blob | null> {
+  try {
+    const img = await loadImage(file)
+    const maxPx = 600
+    const ratio = Math.min(1, maxPx / Math.max(img.naturalWidth, img.naturalHeight))
+    const w = Math.round(img.naturalWidth * ratio)
+    const h = Math.round(img.naturalHeight * ratio)
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    canvas.getContext('2d')!.drawImage(img, 0, 0, w, h)
+    const blob = await canvasToBlob(canvas, 'image/jpeg', 0.85)
+    URL.revokeObjectURL(img.src)
+    return blob
+  } catch {
+    return null
+  }
+}
+
 function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => resolve(img)
     img.onerror = () => reject(new Error(`Cannot load: ${file.name}`))
     img.src = URL.createObjectURL(file)
+  })
+}
+
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality: number,
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error('toBlob failed'))),
+      type,
+      quality,
+    )
   })
 }
 

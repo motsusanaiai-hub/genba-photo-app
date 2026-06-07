@@ -1,6 +1,7 @@
 import { get, set, del } from 'idb-keyval'
 
-const key = (id: string) => `photo:${id}`
+const key            = (id: string) => `photo:${id}`
+const compressedKey  = (id: string) => `photo:${id}:c:600`
 
 /**
  * オリジナル写真ファイルを IndexedDB に保存・取得・削除するラッパー。
@@ -31,5 +32,28 @@ export const photoStorage = {
     } catch (e) {
       console.warn('photoStorage.remove failed:', e)
     }
+  },
+
+  // ─── 600px 圧縮版（Excel 出力用）────────────────────────────
+
+  async saveCompressed(id: string, blob: Blob): Promise<void> {
+    try {
+      await set(compressedKey(id), blob)
+    } catch (e) {
+      console.warn('photoStorage.saveCompressed failed:', e)
+    }
+  },
+
+  async getCompressedBlob(id: string): Promise<Blob | null> {
+    try {
+      const blob = await get<Blob>(compressedKey(id))
+      return blob ?? null
+    } catch {
+      return null
+    }
+  },
+
+  async removeCompressed(id: string): Promise<void> {
+    await del(compressedKey(id)).catch(() => {})
   },
 }

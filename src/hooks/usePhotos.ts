@@ -1,7 +1,7 @@
 import { useAuthStore } from '@/store/authStore'
 import { usePhotoStore } from '@/store/photoStore'
 import { photoStorage } from '@/lib/photoStorage'
-import { generateThumbnail } from '@/utils/imageUtils'
+import { generateThumbnail, generateCompressedImage } from '@/utils/imageUtils'
 import type { Photo, Phase } from '@/types/photo'
 
 export function usePhotos(projectId: string) {
@@ -31,6 +31,10 @@ export function usePhotos(projectId: string) {
       const id = crypto.randomUUID()
       const { dataUrl, width, height } = await generateThumbnail(file)
       await photoStorage.save(id, file)
+
+      // Excel 出力用 600px 圧縮版を生成して保存
+      const compressed = await generateCompressedImage(file)
+      if (compressed) await photoStorage.saveCompressed(id, compressed)
 
       const now = new Date().toISOString()
       newPhotos.push({
@@ -67,7 +71,10 @@ export function usePhotos(projectId: string) {
   }
 
   const removePhoto = async (photoId: string) => {
-    await photoStorage.remove(photoId)
+    await Promise.all([
+      photoStorage.remove(photoId),
+      photoStorage.removeCompressed(photoId),
+    ])
     deletePhoto(photoId)
   }
 

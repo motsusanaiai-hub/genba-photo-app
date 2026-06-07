@@ -37,7 +37,7 @@ export function ExportButton({ project, photos }: Props) {
   const label =
     status === 'loading' ? '生成中...' :
     status === 'error'   ? 'エラー'   :
-                           'Excel'
+                           'Excel出力'
 
   return (
     <Button
@@ -50,7 +50,7 @@ export function ExportButton({ project, photos }: Props) {
     >
       {icon}
       {/* PC: テキストあり / モバイル: アイコンのみ */}
-      <span className="hidden sm:inline">{label === 'Excel' ? 'Excel出力' : label}</span>
+      <span className="hidden sm:inline">{label}</span>
     </Button>
   )
 }

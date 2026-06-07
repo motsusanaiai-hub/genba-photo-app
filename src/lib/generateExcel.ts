@@ -1,5 +1,5 @@
 import { Workbook } from 'exceljs'
-import type { Anchor, Border, Worksheet } from 'exceljs'
+import type { Border, Worksheet } from 'exceljs'
 import type { Photo } from '@/types/photo'
 import type { Project } from '@/types/project'
 import { PHASE_CONFIG } from '@/types/photo'
@@ -13,6 +13,15 @@ const H_IMAGE       = 130 // 画像行の高さ（pt）
 const H_PHASE       = 18
 const H_DATE        = 18
 const H_COMMENT     = 45
+
+// セル実寸（ピクセル換算）- アスペクト比 fit + 中央寄せ EMU オフセット計算の基準
+// COL_W=28chars * 7px/char = 196px、H_IMAGE=130pt * 96/72 ≈ 173px
+const CELL_W_PX = Math.round(COL_W * 7)         // 196px
+const CELL_H_PX = Math.round(H_IMAGE * 96 / 72) // 173px
+
+// 写真の表示上限（上下左右に4pxずつ余白を確保して中央寄せ）
+const IMG_MAX_W = CELL_W_PX - 8  // 188px
+const IMG_MAX_H = CELL_H_PX - 8  // 165px
 
 const THIN: Partial<Border> = { style: 'thin' }
 const BOX  = { top: THIN, left: THIN, bottom: THIN, right: THIN }
@@ -169,12 +178,24 @@ async function embedImage(
 
     const imageId = wb.addImage({ base64, extension: 'jpeg' })
 
-    // tl/br は 0-indexed。画像行は 1-indexed (pairIdx*5+2) → 0-indexed (pairIdx*5+1)
+    // tl は 0-indexed。画像行は 1-indexed (pairIdx*5+2) → 0-indexed (pairIdx*5+1)
     const imgRow0 = pairIdx * ROWS_PER_PAIR + 1
+    const { width: extW, height: extH } = fitToCell(photo.width, photo.height)
+
+    // セル内中央寄せ: 余白を EMU に直接変換して nativeColOff / nativeRowOff に渡す
+    // ※ col/row 小数指定は ExcelJS が colWidth(=280000) 倍するため EMU にならない
+    const nativeColOff = Math.round(((CELL_W_PX - extW) / 2) * 9525)
+    const nativeRowOff = Math.round(((CELL_H_PX - extH) / 2) * 9525)
+
     ws.addImage(imageId, {
-      tl: anchor(colIdx,     imgRow0),
-      br: anchor(colIdx + 1, imgRow0 + 1),
-      editAs: 'twoCell',
+      tl: {
+        nativeCol:    colIdx,
+        nativeRow:    imgRow0,
+        nativeColOff,
+        nativeRowOff,
+      } as unknown as { col: number; row: number },
+      ext: { width: extW, height: extH },
+      editAs: 'oneCell',
     })
   } catch {
     // 画像埋め込み失敗は無視して出力を継続
@@ -185,18 +206,32 @@ async function embedImage(
 
 async function photoToJpegBase64(photo: Photo): Promise<string | null> {
   try {
-    // IndexedDB からオリジナル画像を取得してリサイズ
+    // 1st: IndexedDB の 600px 圧縮版を取得
+    const compressedBlob = await photoStorage.getCompressedBlob(photo.id)
+    if (compressedBlob) {
+      return await blobToBase64(compressedBlob)
+    }
+    // 2nd: 圧縮版がない場合は原本から 600px にリサイズ（既存写真 or 生成失敗時）
     const url = await photoStorage.getObjectURL(photo.id)
     if (url) {
-      const b64 = await urlToJpegBase64(url, 800)
+      const b64 = await urlToJpegBase64(url, 600)
       URL.revokeObjectURL(url)
       return b64
     }
-    // フォールバック: thumbnail_data_url（WebP → JPEG 変換）
+    // 3rd: 原本もない場合は thumbnail_data_url にフォールバック
     return await dataUrlToJpegBase64(photo.thumbnail_data_url)
   } catch {
     return null
   }
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve((reader.result as string).split(',')[1])
+    reader.onerror = () => reject(new Error('FileReader failed'))
+    reader.readAsDataURL(blob)
+  })
 }
 
 function urlToJpegBase64(url: string, maxLong: number): Promise<string> {
@@ -232,13 +267,22 @@ function dataUrlToJpegBase64(dataUrl: string): Promise<string> {
   })
 }
 
-// ExcelJS の型定義は Anchor の全フィールドを要求するが、
-// ランタイムは { col, row } のみで動作する。型キャストで吸収する。
-function anchor(col: number, row: number): Anchor {
-  return { col, row } as unknown as Anchor
-}
-
 // ─── その他ヘルパー ───────────────────────────────────────────
+
+/** 元の縦横比を保ちつつ IMG_MAX_W × IMG_MAX_H に収まるピクセルサイズを返す */
+function fitToCell(
+  naturalW: number | null,
+  naturalH: number | null,
+): { width: number; height: number } {
+  if (!naturalW || !naturalH) {
+    return { width: IMG_MAX_W, height: IMG_MAX_H }
+  }
+  const ratio = Math.min(IMG_MAX_W / naturalW, IMG_MAX_H / naturalH)
+  return {
+    width : Math.round(naturalW * ratio),
+    height: Math.round(naturalH * ratio),
+  }
+}
 
 function phaseLabel(photo: Photo | undefined): string {
   if (!photo?.phase) return ''
