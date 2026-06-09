@@ -6,13 +6,14 @@ import { PHASE_CONFIG } from '@/types/photo'
 import { photoStorage } from '@/lib/photoStorage'
 
 // ─── レイアウト定数 ───────────────────────────────────────────
-const ROWS_PER_PAIR = 5   // 番号 / 画像 / フェーズ / 日付 / コメント
-const COL_W         = 28  // 列幅（文字数）
-const H_NO          = 18  // 番号行の高さ（pt）
-const H_IMAGE       = 130 // 画像行の高さ（pt）
-const H_PHASE       = 18
-const H_DATE        = 18
-const H_COMMENT     = 45
+const ROWS_PER_PAIR  = 5   // 番号 / 画像 / フェーズ / 日付 / コメント
+const PAIRS_PER_PAGE = 3   // 1ページあたり 2列×3段 = 最大6枚
+const COL_W          = 32  // 列幅（文字数）— A4横幅を活用するため28→32
+const H_NO           = 18  // 番号行の高さ（pt）
+const H_IMAGE        = 130 // 画像行の高さ（pt）
+const H_PHASE        = 18
+const H_DATE         = 18
+const H_COMMENT      = 45
 
 const CELL_PADDING_PX = 4  // 写真枠の上下左右余白
 
@@ -168,11 +169,17 @@ async function buildPhotoSheet(
   const ws = wb.addWorksheet(sheetName)
   ws.columns = [{ width: COL_W }, { width: COL_W }]
 
-  ws.pageSetup.paperSize      = 9  // A4（const enum は isolatedModules で使えないため数値直指定）
-  ws.pageSetup.orientation    = 'portrait'
-  ws.pageSetup.fitToPage      = true
-  ws.pageSetup.fitToWidth     = 1
-  ws.pageSetup.fitToHeight    = 0
+  ws.pageSetup.paperSize   = 9  // A4
+  ws.pageSetup.orientation = 'portrait'
+  ws.pageSetup.fitToPage   = true
+  ws.pageSetup.fitToWidth  = 1
+  ws.pageSetup.fitToHeight = 0
+  // 余白を小さくして A4 横幅を最大限活用する（単位: inch）
+  ws.pageSetup.margins = {
+    left: 0.25, right: 0.25,
+    top:  0.30, bottom: 0.30,
+    header: 0.1, footer: 0.1,
+  }
 
   if (photos.length === 0) {
     const c = ws.getCell('A1')
@@ -226,6 +233,13 @@ async function buildPhotoSheet(
         col0: 1, row0,
         widthPx: colWidthToPx(COL_W), heightPx: rowHeightToPx(H_IMAGE),
       })
+    }
+
+    // 3段（6枚）ごとに改ページ。No.だけが前ページ末尾に残らないよう
+    // コメント行の後ろで切り、次の No. 行から新ページが始まる。
+    // 最後のペアには不要なので除外する。
+    if ((i + 1) % PAIRS_PER_PAGE === 0 && i < numPairs - 1) {
+      ws.getRow(rNo + 4).addPageBreak()
     }
   }
 }
