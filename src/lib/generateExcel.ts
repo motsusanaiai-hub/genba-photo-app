@@ -188,46 +188,51 @@ async function buildPhotoSheet(
     return
   }
 
-  const numPairs = Math.ceil(photos.length / 2)
+  const numPairs   = Math.ceil(photos.length / 2)
+  // 最後のページも常に 2列×3段 固定になるよう PAIRS_PER_PAGE の倍数に補完
+  const totalPairs = Math.ceil(numPairs / PAIRS_PER_PAGE) * PAIRS_PER_PAGE
 
-  for (let i = 0; i < numPairs; i++) {
-    const left  = photos[i * 2]
-    const right = photos[i * 2 + 1]          // 奇数末尾は undefined
+  for (let i = 0; i < totalPairs; i++) {
+    // photos 配列の範囲外は undefined（空枠として扱う）
+    const left  = photos[i * 2] as Photo | undefined
+    const right = photos[i * 2 + 1] as Photo | undefined
     const rNo   = i * ROWS_PER_PAIR + 1      // 1-indexed 番号行
 
-    // 行の高さ
+    // 行の高さ（空枠でも維持）
     ws.getRow(rNo + 0).height = H_NO
     ws.getRow(rNo + 1).height = H_IMAGE
     ws.getRow(rNo + 2).height = H_PHASE
     ws.getRow(rNo + 3).height = H_DATE
     ws.getRow(rNo + 4).height = H_COMMENT
 
-    // 番号行（photoOffset でシートをまたいだ続き番号）
-    tc(ws, rNo,   1, `No.${photoOffset + i * 2 + 1}`, true,  'center')
-    tc(ws, rNo,   2, right ? `No.${photoOffset + i * 2 + 2}` : '', true, 'center')
+    // 番号行：写真がある枠のみ番号表示、空枠は空白
+    tc(ws, rNo, 1, left  ? `No.${photoOffset + i * 2 + 1}` : '', true, 'center')
+    tc(ws, rNo, 2, right ? `No.${photoOffset + i * 2 + 2}` : '', true, 'center')
 
     // フェーズ行
     tc(ws, rNo+2, 1, phaseLabel(left),  false, 'center')
     tc(ws, rNo+2, 2, phaseLabel(right), false, 'center')
 
     // 日付行
-    tc(ws, rNo+3, 1, fmtDate(left.taken_at),          false, 'center')
+    tc(ws, rNo+3, 1, fmtDate(left?.taken_at  ?? null), false, 'center')
     tc(ws, rNo+3, 2, fmtDate(right?.taken_at ?? null), false, 'center')
 
     // コメント行（折り返しあり）
-    tc(ws, rNo+4, 1, left.comment,         false, 'left', true)
+    tc(ws, rNo+4, 1, left?.comment  ?? '', false, 'left', true)
     tc(ws, rNo+4, 2, right?.comment ?? '', false, 'left', true)
 
-    // 画像行にも枠線を設定（画像埋め込み失敗時の見た目保証）
+    // 画像行の外枠：写真あり・空枠問わず常に表示
     ws.getCell(rNo+1, 1).border = BOX
     ws.getCell(rNo+1, 2).border = BOX
 
-    // 写真埋め込み（1枚失敗しても他の行は継続）
+    // 写真埋め込み（写真がある場合のみ）
     const row0 = i * ROWS_PER_PAIR + 1  // 0-indexed（画像配置用）
-    await embedImage(wb, ws, left, {
-      col0: 0, row0,
-      widthPx: colWidthToPx(COL_W), heightPx: rowHeightToPx(H_IMAGE),
-    })
+    if (left) {
+      await embedImage(wb, ws, left, {
+        col0: 0, row0,
+        widthPx: colWidthToPx(COL_W), heightPx: rowHeightToPx(H_IMAGE),
+      })
+    }
     if (right) {
       await embedImage(wb, ws, right, {
         col0: 1, row0,
@@ -235,10 +240,8 @@ async function buildPhotoSheet(
       })
     }
 
-    // 3段（6枚）ごとに改ページ。No.だけが前ページ末尾に残らないよう
-    // コメント行の後ろで切り、次の No. 行から新ページが始まる。
-    // 最後のペアには不要なので除外する。
-    if ((i + 1) % PAIRS_PER_PAGE === 0 && i < numPairs - 1) {
+    // 3段（6枚）ごとに改ページ。最後のペアは除く。
+    if ((i + 1) % PAIRS_PER_PAGE === 0 && i < totalPairs - 1) {
       ws.getRow(rNo + 4).addPageBreak()
     }
   }
