@@ -6,11 +6,19 @@ import { PHASE_CONFIG } from '@/types/photo'
 import { photoStorage } from '@/lib/photoStorage'
 
 // ─── レイアウト定数 ───────────────────────────────────────────
-const ROWS_PER_PAIR  = 4   // 番号 / 画像 / フェーズ / コメント（日付行を廃止）
+//
+// A4 印刷領域を最大活用するための寸法設計:
+//   余白: left/right 0.20" → 印刷幅 = 8.27-0.40 = 7.87" = 756px (96dpi)
+//   余白: top/bottom 0.25" → 印刷高 = 11.69-0.50 = 11.19" = 806pt (72pt/inch)
+//
+//   COL_W = 54: 2列 × 54 × 7px = 756px → fitToWidth:1 の拡大率≈1.0
+//   H_IMAGE = 187: 3段 × (18+187+18+45) = 3×268 = 804pt ≤ 806pt
+//
+const ROWS_PER_PAIR  = 4   // 番号 / 画像 / フェーズ / コメント
 const PAIRS_PER_PAGE = 3   // 1ページあたり 2列×3段 = 最大6枚
-const COL_W          = 32  // 列幅（文字数）
+const COL_W          = 54  // 列幅（文字数）— A4印刷幅を自然に埋める値
 const H_NO           = 18  // 番号行の高さ（pt）
-const H_IMAGE        = 148 // 画像行（廃止した日付行 18pt を写真に配分: 130+18=148）
+const H_IMAGE        = 187 // 画像行 — A4高さを3段で割り切った残り
 const H_PHASE        = 18
 const H_COMMENT      = 45
 
