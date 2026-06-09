@@ -14,17 +14,70 @@ const H_PHASE       = 18
 const H_DATE        = 18
 const H_COMMENT     = 45
 
-// セル実寸（ピクセル換算）- アスペクト比 fit + 中央寄せ EMU オフセット計算の基準
-// COL_W=28chars * 7px/char = 196px、H_IMAGE=130pt * 96/72 ≈ 173px
-const CELL_W_PX = Math.round(COL_W * 7)         // 196px
-const CELL_H_PX = Math.round(H_IMAGE * 96 / 72) // 173px
-
-// 写真の表示上限（上下左右に4pxずつ余白を確保して中央寄せ）
-const IMG_MAX_W = CELL_W_PX - 8  // 188px
-const IMG_MAX_H = CELL_H_PX - 8  // 165px
+const CELL_PADDING_PX = 4  // 写真枠の上下左右余白
 
 const THIN: Partial<Border> = { style: 'thin' }
 const BOX  = { top: THIN, left: THIN, bottom: THIN, right: THIN }
+
+// ─── セルフレーム ─────────────────────────────────────────────
+
+/**
+ * 写真を配置するセル枠の定義。
+ * 将来の複数セル結合（複数行・複数列にまたがる枠）に対応できるよう、
+ * 物理サイズを px で明示的に保持する設計にしている。
+ * 複数セル結合の場合は widthPx / heightPx に合計値を渡すだけで
+ * 以降の計算ロジックを変更せずに対応できる。
+ */
+interface CellFrame {
+  col0: number      // 0-indexed 列インデックス（フレーム左端）
+  row0: number      // 0-indexed 行インデックス（フレーム上端）
+  widthPx: number   // フレーム幅（px）
+  heightPx: number  // フレーム高さ（px）
+}
+
+/** Excel 列幅（文字数）→ px。Calibri 11pt 基準: 1文字幅 ≈ 7px */
+function colWidthToPx(charWidth: number): number {
+  return Math.round(charWidth * 7)
+}
+
+/** Excel 行高さ（pt）→ px。96dpi 基準: 1pt = 96/72 px */
+function rowHeightToPx(heightPt: number): number {
+  return Math.round(heightPt * 96 / 72)
+}
+
+/**
+ * セルフレーム内に画像をアスペクト比維持で収めた表示サイズと
+ * 中央寄せ用 EMU オフセットを計算する。
+ *
+ * nativeColOff / nativeRowOff は ExcelJS の tl に直接渡す EMU 値。
+ * col/row 小数指定は ExcelJS が colWidth(=280000) 倍するため EMU にならないため
+ * nativeColOff を使う（型定義にないため as unknown キャストが必要）。
+ */
+function calcImagePlacement(
+  frame: CellFrame,
+  naturalW: number | null,
+  naturalH: number | null,
+): { extW: number; extH: number; nativeColOff: number; nativeRowOff: number } {
+  const maxW = frame.widthPx  - CELL_PADDING_PX * 2
+  const maxH = frame.heightPx - CELL_PADDING_PX * 2
+
+  let extW: number
+  let extH: number
+
+  if (!naturalW || !naturalH) {
+    extW = maxW
+    extH = maxH
+  } else {
+    const ratio = Math.min(maxW / naturalW, maxH / naturalH)
+    extW = Math.round(naturalW * ratio)
+    extH = Math.round(naturalH * ratio)
+  }
+
+  const nativeColOff = Math.round(((frame.widthPx - extW) / 2) * 9525)
+  const nativeRowOff = Math.round(((frame.heightPx - extH) / 2) * 9525)
+
+  return { extW, extH, nativeColOff, nativeRowOff }
+}
 
 // ─── メイン ──────────────────────────────────────────────────
 
@@ -178,19 +231,22 @@ async function embedImage(
 
     const imageId = wb.addImage({ base64, extension: 'jpeg' })
 
-    // tl は 0-indexed。画像行は 1-indexed (pairIdx*5+2) → 0-indexed (pairIdx*5+1)
-    const imgRow0 = pairIdx * ROWS_PER_PAIR + 1
-    const { width: extW, height: extH } = fitToCell(photo.width, photo.height)
+    // 1セル写真枠: 列幅・行高さをレイアウト定数から都度変換して CellFrame を構築する。
+    // 将来テンプレートで列幅や行高さが変わっても、この部分だけを差し替えれば対応できる。
+    const frame: CellFrame = {
+      col0:     colIdx,
+      row0:     pairIdx * ROWS_PER_PAIR + 1,  // tl は 0-indexed
+      widthPx:  colWidthToPx(COL_W),
+      heightPx: rowHeightToPx(H_IMAGE),
+    }
 
-    // セル内中央寄せ: 余白を EMU に直接変換して nativeColOff / nativeRowOff に渡す
-    // ※ col/row 小数指定は ExcelJS が colWidth(=280000) 倍するため EMU にならない
-    const nativeColOff = Math.round(((CELL_W_PX - extW) / 2) * 9525)
-    const nativeRowOff = Math.round(((CELL_H_PX - extH) / 2) * 9525)
+    const { extW, extH, nativeColOff, nativeRowOff } =
+      calcImagePlacement(frame, photo.width, photo.height)
 
     ws.addImage(imageId, {
       tl: {
-        nativeCol:    colIdx,
-        nativeRow:    imgRow0,
+        nativeCol:    frame.col0,
+        nativeRow:    frame.row0,
         nativeColOff,
         nativeRowOff,
       } as unknown as { col: number; row: number },
@@ -268,21 +324,6 @@ function dataUrlToJpegBase64(dataUrl: string): Promise<string> {
 }
 
 // ─── その他ヘルパー ───────────────────────────────────────────
-
-/** 元の縦横比を保ちつつ IMG_MAX_W × IMG_MAX_H に収まるピクセルサイズを返す */
-function fitToCell(
-  naturalW: number | null,
-  naturalH: number | null,
-): { width: number; height: number } {
-  if (!naturalW || !naturalH) {
-    return { width: IMG_MAX_W, height: IMG_MAX_H }
-  }
-  const ratio = Math.min(IMG_MAX_W / naturalW, IMG_MAX_H / naturalH)
-  return {
-    width : Math.round(naturalW * ratio),
-    height: Math.round(naturalH * ratio),
-  }
-}
 
 function phaseLabel(photo: Photo | undefined): string {
   if (!photo?.phase) return ''
