@@ -6,13 +6,12 @@ import { PHASE_CONFIG } from '@/types/photo'
 import { photoStorage } from '@/lib/photoStorage'
 
 // ─── レイアウト定数 ───────────────────────────────────────────
-const ROWS_PER_PAIR  = 5   // 番号 / 画像 / フェーズ / 日付 / コメント
+const ROWS_PER_PAIR  = 4   // 番号 / 画像 / フェーズ / コメント（日付行を廃止）
 const PAIRS_PER_PAGE = 3   // 1ページあたり 2列×3段 = 最大6枚
-const COL_W          = 32  // 列幅（文字数）— A4横幅を活用するため28→32
+const COL_W          = 32  // 列幅（文字数）
 const H_NO           = 18  // 番号行の高さ（pt）
-const H_IMAGE        = 130 // 画像行の高さ（pt）
+const H_IMAGE        = 148 // 画像行（廃止した日付行 18pt を写真に配分: 130+18=148）
 const H_PHASE        = 18
-const H_DATE         = 18
 const H_COMMENT      = 45
 
 const CELL_PADDING_PX = 4  // 写真枠の上下左右余白
@@ -174,10 +173,10 @@ async function buildPhotoSheet(
   ws.pageSetup.fitToPage   = true
   ws.pageSetup.fitToWidth  = 1
   ws.pageSetup.fitToHeight = 0
-  // 余白を小さくして A4 横幅を最大限活用する（単位: inch）
+  // 余白（単位: inch）
   ws.pageSetup.margins = {
-    left: 0.25, right: 0.25,
-    top:  0.30, bottom: 0.30,
+    left: 0.20, right: 0.20,
+    top:  0.25, bottom: 0.25,
     header: 0.1, footer: 0.1,
   }
 
@@ -202,24 +201,19 @@ async function buildPhotoSheet(
     ws.getRow(rNo + 0).height = H_NO
     ws.getRow(rNo + 1).height = H_IMAGE
     ws.getRow(rNo + 2).height = H_PHASE
-    ws.getRow(rNo + 3).height = H_DATE
-    ws.getRow(rNo + 4).height = H_COMMENT
+    ws.getRow(rNo + 3).height = H_COMMENT
 
     // 番号行：写真がある枠のみ番号表示、空枠は空白
-    tc(ws, rNo, 1, left  ? `No.${photoOffset + i * 2 + 1}` : '', true, 'center')
-    tc(ws, rNo, 2, right ? `No.${photoOffset + i * 2 + 2}` : '', true, 'center')
+    tc(ws, rNo,   1, left  ? `No.${photoOffset + i * 2 + 1}` : '', true, 'center')
+    tc(ws, rNo,   2, right ? `No.${photoOffset + i * 2 + 2}` : '', true, 'center')
 
     // フェーズ行
     tc(ws, rNo+2, 1, phaseLabel(left),  false, 'center')
     tc(ws, rNo+2, 2, phaseLabel(right), false, 'center')
 
-    // 日付行
-    tc(ws, rNo+3, 1, fmtDate(left?.taken_at  ?? null), false, 'center')
-    tc(ws, rNo+3, 2, fmtDate(right?.taken_at ?? null), false, 'center')
-
     // コメント行（折り返しあり）
-    tc(ws, rNo+4, 1, left?.comment  ?? '', false, 'left', true)
-    tc(ws, rNo+4, 2, right?.comment ?? '', false, 'left', true)
+    tc(ws, rNo+3, 1, left?.comment  ?? '', false, 'left', true)
+    tc(ws, rNo+3, 2, right?.comment ?? '', false, 'left', true)
 
     // 画像行の外枠：写真あり・空枠問わず常に表示
     ws.getCell(rNo+1, 1).border = BOX
@@ -242,7 +236,7 @@ async function buildPhotoSheet(
 
     // 3段（6枚）ごとに改ページ。最後のペアは除く。
     if ((i + 1) % PAIRS_PER_PAGE === 0 && i < totalPairs - 1) {
-      ws.getRow(rNo + 4).addPageBreak()
+      ws.getRow(rNo + 3).addPageBreak()
     }
   }
 }
