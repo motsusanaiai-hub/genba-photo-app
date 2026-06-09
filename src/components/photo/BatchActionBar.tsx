@@ -2,15 +2,16 @@ import { X } from 'lucide-react'
 import { PHASE_CONFIG, type Phase } from '@/types/photo'
 import { cn } from '@/lib/utils'
 
-const PHASES: { value: Phase; label: string }[] = [
+const PHASES: { value: Phase | null; label: string }[] = [
   { value: 'before', label: PHASE_CONFIG.before.label },
   { value: 'during', label: PHASE_CONFIG.during.label },
   { value: 'after',  label: PHASE_CONFIG.after.label },
+  { value: null,     label: '未分類' },
 ]
 
 interface Props {
   count: number
-  onPhaseChange: (phase: Phase) => void
+  onPhaseChange: (phase: Phase | null) => void
   onClear: () => void
 }
 
@@ -27,7 +28,7 @@ export function BatchActionBar({ count, onPhaseChange, onClear }: Props) {
         <div className="flex gap-1.5 flex-1">
           {PHASES.map(({ value, label }) => (
             <button
-              key={value}
+              key={value ?? 'unclassified'}
               onClick={() => onPhaseChange(value)}
               className={cn(
                 'flex-1 py-2 rounded-lg border text-xs font-medium transition-colors',
@@ -35,6 +36,7 @@ export function BatchActionBar({ count, onPhaseChange, onClear }: Props) {
                 value === 'before' && 'border-blue-300  text-blue-700  hover:bg-blue-50',
                 value === 'during' && 'border-amber-300 text-amber-700 hover:bg-amber-50',
                 value === 'after'  && 'border-green-300 text-green-700 hover:bg-green-50',
+                value === null     && 'border-gray-300  text-gray-600  hover:bg-gray-50',
               )}
             >
               {label}

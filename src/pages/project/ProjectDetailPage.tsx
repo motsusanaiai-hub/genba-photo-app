@@ -64,7 +64,7 @@ export function ProjectDetailPage() {
     clear()
   }
 
-  const handleBatchPhaseChange = (phase: Phase) => {
+  const handleBatchPhaseChange = (phase: Phase | null) => {
     selected.forEach((id) => setPhase(id, phase))
     clear()
   }
