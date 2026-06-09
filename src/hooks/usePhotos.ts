@@ -12,8 +12,11 @@ export function usePhotos(projectId: string) {
     .filter((p) => p.project_id === projectId)
     .sort((a, b) => a.sort_order - b.sort_order)
 
-  const filtered = (phase: Phase | 'all'): Photo[] =>
-    phase === 'all' ? projectPhotos : projectPhotos.filter((p) => p.phase === phase)
+  const filtered = (phase: Phase | 'all' | 'unclassified'): Photo[] => {
+    if (phase === 'all') return projectPhotos
+    if (phase === 'unclassified') return projectPhotos.filter((p) => p.phase == null)
+    return projectPhotos.filter((p) => p.phase === phase)
+  }
 
   const maxSortOrder = projectPhotos.length
     ? Math.max(...projectPhotos.map((p) => p.sort_order))

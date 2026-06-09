@@ -86,8 +86,21 @@ export async function generateExcel(project: Project, photos: Photo[]): Promise<
   wb.creator = '現場フォト'
   wb.created = new Date()
 
-  buildCoverSheet(wb, project, photos.length)
-  await buildPhotoSheet(wb, photos)
+  // 未分類写真（phase が null）はExcel出力対象外
+  const beforePhotos = photos.filter((p) => p.phase === 'before')
+  const duringPhotos = photos.filter((p) => p.phase === 'during')
+  const afterPhotos  = photos.filter((p) => p.phase === 'after')
+  const totalPhotos  = beforePhotos.length + duringPhotos.length + afterPhotos.length
+
+  buildCoverSheet(wb, project, totalPhotos)
+
+  // シートをまたいで続き番号にするため、前のシートの枚数を累積オフセットとして渡す
+  let photoOffset = 0
+  await buildPhotoSheet(wb, beforePhotos, '施工前', photoOffset)
+  photoOffset += beforePhotos.length
+  await buildPhotoSheet(wb, duringPhotos, '施工中', photoOffset)
+  photoOffset += duringPhotos.length
+  await buildPhotoSheet(wb, afterPhotos,  '施工後', photoOffset)
 
   const buffer = await wb.xlsx.writeBuffer()
   const safeName = project.name.replace(/[\\/:*?"<>|]/g, '_')
@@ -146,8 +159,13 @@ export function buildCoverSheet(
 
 // ─── 写真台帳シート ───────────────────────────────────────────
 
-async function buildPhotoSheet(wb: Workbook, photos: Photo[]): Promise<void> {
-  const ws = wb.addWorksheet('写真台帳')
+async function buildPhotoSheet(
+  wb: Workbook,
+  photos: Photo[],
+  sheetName: string,
+  photoOffset: number,
+): Promise<void> {
+  const ws = wb.addWorksheet(sheetName)
   ws.columns = [{ width: COL_W }, { width: COL_W }]
 
   ws.pageSetup.paperSize      = 9  // A4（const enum は isolatedModules で使えないため数値直指定）
@@ -158,7 +176,7 @@ async function buildPhotoSheet(wb: Workbook, photos: Photo[]): Promise<void> {
 
   if (photos.length === 0) {
     const c = ws.getCell('A1')
-    c.value = '写真がありません'
+    c.value = `${sheetName}の写真がありません`
     c.font  = { italic: true, color: { argb: 'FF999999' } }
     return
   }
@@ -177,16 +195,16 @@ async function buildPhotoSheet(wb: Workbook, photos: Photo[]): Promise<void> {
     ws.getRow(rNo + 3).height = H_DATE
     ws.getRow(rNo + 4).height = H_COMMENT
 
-    // 番号行
-    tc(ws, rNo,   1, `No.${i * 2 + 1}`, true,  'center')
-    tc(ws, rNo,   2, right ? `No.${i * 2 + 2}` : '', true, 'center')
+    // 番号行（photoOffset でシートをまたいだ続き番号）
+    tc(ws, rNo,   1, `No.${photoOffset + i * 2 + 1}`, true,  'center')
+    tc(ws, rNo,   2, right ? `No.${photoOffset + i * 2 + 2}` : '', true, 'center')
 
     // フェーズ行
     tc(ws, rNo+2, 1, phaseLabel(left),  false, 'center')
     tc(ws, rNo+2, 2, phaseLabel(right), false, 'center')
 
     // 日付行
-    tc(ws, rNo+3, 1, fmtDate(left.taken_at),         false, 'center')
+    tc(ws, rNo+3, 1, fmtDate(left.taken_at),          false, 'center')
     tc(ws, rNo+3, 2, fmtDate(right?.taken_at ?? null), false, 'center')
 
     // コメント行（折り返しあり）

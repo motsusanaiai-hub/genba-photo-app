@@ -18,14 +18,15 @@ import { cn } from '@/lib/utils'
 import { PHASE_CONFIG, type Phase } from '@/types/photo'
 import type { Photo } from '@/types/photo'
 
-type PhaseFilter = 'all' | Phase
+type PhaseFilter = 'all' | Phase | 'unclassified'
 type ViewMode = 'grid' | 'ledger'
 
 const TABS: { value: PhaseFilter; label: string }[] = [
-  { value: 'all',    label: '全て' },
-  { value: 'before', label: PHASE_CONFIG.before.label },
-  { value: 'during', label: PHASE_CONFIG.during.label },
-  { value: 'after',  label: PHASE_CONFIG.after.label },
+  { value: 'all',          label: '全て' },
+  { value: 'before',       label: PHASE_CONFIG.before.label },
+  { value: 'during',       label: PHASE_CONFIG.during.label },
+  { value: 'after',        label: PHASE_CONFIG.after.label },
+  { value: 'unclassified', label: '未分類' },
 ]
 
 const VIEW_MODE_KEY = 'genba-view-mode'
@@ -78,6 +79,7 @@ export function ProjectDetailPage() {
   }
 
   const phaseCount = (phase: Phase) => photos.filter((p) => p.phase === phase).length
+  const unclassifiedCount = photos.filter((p) => p.phase == null).length
 
   return (
     <>
@@ -126,7 +128,10 @@ export function ProjectDetailPage() {
           {/* フェーズタブ */}
           <div className="flex overflow-x-auto flex-1">
             {TABS.map(({ value, label }) => {
-              const count = value === 'all' ? photos.length : phaseCount(value as Phase)
+              const count =
+                value === 'all'          ? photos.length :
+                value === 'unclassified' ? unclassifiedCount :
+                                           phaseCount(value as Phase)
               return (
                 <button
                   key={value}
@@ -138,10 +143,10 @@ export function ProjectDetailPage() {
                       : 'border-transparent text-muted-foreground hover:text-foreground',
                   )}
                 >
-                  {value !== 'all' ? (
-                    <PhaseBadge phase={value as Phase} size="sm" />
-                  ) : (
+                  {value === 'all' || value === 'unclassified' ? (
                     <span>{label}</span>
+                  ) : (
+                    <PhaseBadge phase={value as Phase} size="sm" />
                   )}
                   <span className="text-xs text-muted-foreground">（{count}）</span>
                 </button>
@@ -185,7 +190,7 @@ export function ProjectDetailPage() {
       {photos.length === 0 ? (
         <PhotoEmptyState onUpload={() => setShowUpload(true)} />
       ) : displayPhotos.length === 0 ? (
-        <FilterEmptyState phase={phaseFilter as Phase} onClear={() => handlePhaseFilterChange('all')} />
+        <FilterEmptyState phase={phaseFilter as Phase | 'unclassified'} onClear={() => handlePhaseFilterChange('all')} />
       ) : viewMode === 'ledger' ? (
         <LedgerView
           photos={displayPhotos}
@@ -261,11 +266,16 @@ function PhotoEmptyState({ onUpload }: { onUpload: () => void }) {
   )
 }
 
-function FilterEmptyState({ phase, onClear }: { phase: Phase; onClear: () => void }) {
+function FilterEmptyState({ phase, onClear }: { phase: Phase | 'unclassified'; onClear: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-[30vh] gap-3 text-center p-4">
       <p className="text-muted-foreground text-sm">
-        <PhaseBadge phase={phase} size="sm" /> の写真はまだありません
+        {phase === 'unclassified' ? (
+          '未分類'
+        ) : (
+          <PhaseBadge phase={phase} size="sm" />
+        )}
+        {' '}の写真はまだありません
       </p>
       <Button variant="outline" size="sm" onClick={onClear}>
         全て表示
