@@ -17,7 +17,7 @@ const H_COMMENT     = 45
 const CELL_PADDING_PX = 4  // 写真枠の上下左右余白
 
 const THIN: Partial<Border> = { style: 'thin' }
-const BOX  = { top: THIN, left: THIN, bottom: THIN, right: THIN }
+export const BOX = { top: THIN, left: THIN, bottom: THIN, right: THIN }
 
 // ─── セルフレーム ─────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ const BOX  = { top: THIN, left: THIN, bottom: THIN, right: THIN }
  * 複数セル結合の場合は widthPx / heightPx に合計値を渡すだけで
  * 以降の計算ロジックを変更せずに対応できる。
  */
-interface CellFrame {
+export interface CellFrame {
   col0: number      // 0-indexed 列インデックス（フレーム左端）
   row0: number      // 0-indexed 行インデックス（フレーム上端）
   widthPx: number   // フレーム幅（px）
@@ -36,12 +36,12 @@ interface CellFrame {
 }
 
 /** Excel 列幅（文字数）→ px。Calibri 11pt 基準: 1文字幅 ≈ 7px */
-function colWidthToPx(charWidth: number): number {
+export function colWidthToPx(charWidth: number): number {
   return Math.round(charWidth * 7)
 }
 
 /** Excel 行高さ（pt）→ px。96dpi 基準: 1pt = 96/72 px */
-function rowHeightToPx(heightPt: number): number {
+export function rowHeightToPx(heightPt: number): number {
   return Math.round(heightPt * 96 / 72)
 }
 
@@ -53,7 +53,7 @@ function rowHeightToPx(heightPt: number): number {
  * col/row 小数指定は ExcelJS が colWidth(=280000) 倍するため EMU にならないため
  * nativeColOff を使う（型定義にないため as unknown キャストが必要）。
  */
-function calcImagePlacement(
+export function calcImagePlacement(
   frame: CellFrame,
   naturalW: number | null,
   naturalH: number | null,
@@ -96,18 +96,23 @@ export async function generateExcel(project: Project, photos: Photo[]): Promise<
 
 // ─── 表紙シート ───────────────────────────────────────────────
 
-function buildCoverSheet(wb: Workbook, project: Project, photoCount: number): void {
+export function buildCoverSheet(
+  wb: Workbook,
+  project: Project,
+  photoCount: number,
+  sheetTitle = '工事写真台帳',
+): void {
   const ws = wb.addWorksheet('表紙')
   ws.columns = [{ width: 14 }, { width: 32 }]
 
   // タイトル（A1:B1 結合）
   ws.mergeCells('A1:B1')
-  const title = ws.getCell('A1')
-  title.value = '工事写真台帳'
-  title.font  = { bold: true, size: 18, color: { argb: 'FF1F3864' } }
-  title.alignment = { horizontal: 'center', vertical: 'middle' }
-  title.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E2F3' } }
-  title.border = BOX
+  const titleCell = ws.getCell('A1')
+  titleCell.value = sheetTitle
+  titleCell.font  = { bold: true, size: 18, color: { argb: 'FF1F3864' } }
+  titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
+  titleCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E2F3' } }
+  titleCell.border = BOX
   ws.getRow(1).height = 50
 
   ws.getRow(2).height = 10  // 空白行
@@ -193,14 +198,23 @@ async function buildPhotoSheet(wb: Workbook, photos: Photo[]): Promise<void> {
     ws.getCell(rNo+1, 2).border = BOX
 
     // 写真埋め込み（1枚失敗しても他の行は継続）
-    await embedImage(wb, ws, left, i, 0)
-    if (right) await embedImage(wb, ws, right, i, 1)
+    const row0 = i * ROWS_PER_PAIR + 1  // 0-indexed（画像配置用）
+    await embedImage(wb, ws, left, {
+      col0: 0, row0,
+      widthPx: colWidthToPx(COL_W), heightPx: rowHeightToPx(H_IMAGE),
+    })
+    if (right) {
+      await embedImage(wb, ws, right, {
+        col0: 1, row0,
+        widthPx: colWidthToPx(COL_W), heightPx: rowHeightToPx(H_IMAGE),
+      })
+    }
   }
 }
 
 // ─── セル書き込みヘルパー ─────────────────────────────────────
 
-function tc(
+export function tc(
   ws: Worksheet,
   row: number,
   col: number,
@@ -218,28 +232,21 @@ function tc(
 
 // ─── 画像埋め込み ─────────────────────────────────────────────
 
-async function embedImage(
+/**
+ * 写真を CellFrame に収めて埋め込む。
+ * frame はテンプレートごとに呼び出し側で構築する。
+ */
+export async function embedImage(
   wb: Workbook,
   ws: Worksheet,
   photo: Photo,
-  pairIdx: number,
-  colIdx: number,  // 0 = 左列, 1 = 右列
+  frame: CellFrame,
 ): Promise<void> {
   try {
     const base64 = await photoToJpegBase64(photo)
     if (!base64) return
 
     const imageId = wb.addImage({ base64, extension: 'jpeg' })
-
-    // 1セル写真枠: 列幅・行高さをレイアウト定数から都度変換して CellFrame を構築する。
-    // 将来テンプレートで列幅や行高さが変わっても、この部分だけを差し替えれば対応できる。
-    const frame: CellFrame = {
-      col0:     colIdx,
-      row0:     pairIdx * ROWS_PER_PAIR + 1,  // tl は 0-indexed
-      widthPx:  colWidthToPx(COL_W),
-      heightPx: rowHeightToPx(H_IMAGE),
-    }
-
     const { extW, extH, nativeColOff, nativeRowOff } =
       calcImagePlacement(frame, photo.width, photo.height)
 
@@ -330,13 +337,13 @@ function phaseLabel(photo: Photo | undefined): string {
   return PHASE_CONFIG[photo.phase].label
 }
 
-function fmtDate(isoString: string | null): string {
+export function fmtDate(isoString: string | null): string {
   if (!isoString) return ''
   const d = new Date(isoString)
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
 }
 
-function triggerDownload(buffer: ArrayBuffer, filename: string): void {
+export function triggerDownload(buffer: ArrayBuffer, filename: string): void {
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   })
