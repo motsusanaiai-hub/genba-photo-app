@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams, Navigate } from 'react-router-dom'
 import { ChevronLeft, Camera, Pencil, Plus, LayoutGrid, List } from 'lucide-react'
 import { ExportButton } from '@/components/project/ExportButton'
+import { BeforeAfterExportButton } from '@/components/project/BeforeAfterExportButton'
 import { useProjects } from '@/hooks/useProjects'
 import { usePhotos } from '@/hooks/usePhotos'
+import { usePhotoSelection } from '@/hooks/usePhotoSelection'
 import { Header } from '@/components/layout/Header'
 import { PhotoGrid } from '@/components/photo/PhotoGrid'
 import { LedgerView } from '@/components/photo/LedgerView'
+import { BatchActionBar } from '@/components/photo/BatchActionBar'
 import { PhotoUploadModal } from '@/components/photo/PhotoUploadModal'
 import { PhotoLightbox } from '@/components/photo/PhotoLightbox'
 import { PhaseBadge } from '@/components/photo/PhaseBadge'
@@ -31,7 +34,12 @@ export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const { getProject } = useProjects()
-  const { photos, filtered, removePhoto, setComment, swapPhotoOrder } = usePhotos(projectId ?? '')
+  const { photos, filtered, removePhoto, setComment, setPhase, swapPhotoOrder } = usePhotos(projectId ?? '')
+  const { selected, toggle, clear } = usePhotoSelection()
+
+  const hasBeforeAfter =
+    photos.some((p) => p.phase === 'before') &&
+    photos.some((p) => p.phase === 'after')
 
   const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>('all')
   const [viewMode, setViewMode] = useState<ViewMode>(
@@ -49,6 +57,16 @@ export function ProjectDetailPage() {
   if (!project) return <Navigate to="/" replace />
 
   const displayPhotos = filtered(phaseFilter)
+
+  const handlePhaseFilterChange = (phase: PhaseFilter) => {
+    setPhaseFilter(phase)
+    clear()
+  }
+
+  const handleBatchPhaseChange = (phase: Phase) => {
+    selected.forEach((id) => setPhase(id, phase))
+    clear()
+  }
 
   // displayPhotos ベースで隣接判定 → フィルター中も正しく並び替えられる
   const handleMovePhoto = (photoId: string, direction: 'up' | 'down') => {
@@ -85,6 +103,10 @@ export function ProjectDetailPage() {
             {photos.length > 0 && (
               <ExportButton project={project} photos={photos} />
             )}
+            {/* 施工前後テンプレート（before / after が各1枚以上ある場合のみ表示） */}
+            {hasBeforeAfter && (
+              <BeforeAfterExportButton project={project} photos={photos} />
+            )}
             {/* 編集ボタン */}
             <Button
               variant="ghost"
@@ -108,7 +130,7 @@ export function ProjectDetailPage() {
               return (
                 <button
                   key={value}
-                  onClick={() => setPhaseFilter(value)}
+                  onClick={() => handlePhaseFilterChange(value)}
                   className={cn(
                     'flex items-center gap-1.5 px-4 py-3 text-sm whitespace-nowrap border-b-2 transition-colors shrink-0',
                     phaseFilter === value
@@ -163,7 +185,7 @@ export function ProjectDetailPage() {
       {photos.length === 0 ? (
         <PhotoEmptyState onUpload={() => setShowUpload(true)} />
       ) : displayPhotos.length === 0 ? (
-        <FilterEmptyState phase={phaseFilter as Phase} onClear={() => setPhaseFilter('all')} />
+        <FilterEmptyState phase={phaseFilter as Phase} onClear={() => handlePhaseFilterChange('all')} />
       ) : viewMode === 'ledger' ? (
         <LedgerView
           photos={displayPhotos}
@@ -172,7 +194,12 @@ export function ProjectDetailPage() {
           onMovePhoto={handleMovePhoto}
         />
       ) : (
-        <PhotoGrid photos={displayPhotos} onPhotoClick={setLightboxPhoto} />
+        <PhotoGrid
+          photos={displayPhotos}
+          onPhotoClick={setLightboxPhoto}
+          selectedIds={selected}
+          onToggle={toggle}
+        />
       )}
 
       {/* スマホ用 FAB */}
@@ -203,6 +230,13 @@ export function ProjectDetailPage() {
           }}
         />
       )}
+
+      {/* 一括フェーズ変更バー */}
+      <BatchActionBar
+        count={selected.size}
+        onPhaseChange={handleBatchPhaseChange}
+        onClear={clear}
+      />
     </>
   )
 }
