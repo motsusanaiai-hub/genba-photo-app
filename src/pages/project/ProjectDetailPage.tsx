@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, Navigate } from 'react-router-dom'
-import { ChevronLeft, Camera, Pencil, Plus, LayoutGrid, List } from 'lucide-react'
+import { ChevronLeft, Camera, Layers, Pencil, Plus, LayoutGrid, List } from 'lucide-react'
 import { ExportButton } from '@/components/project/ExportButton'
 import { BeforeAfterExportButton } from '@/components/project/BeforeAfterExportButton'
 import { useProjects } from '@/hooks/useProjects'
@@ -11,6 +11,7 @@ import { PhotoGrid } from '@/components/photo/PhotoGrid'
 import { LedgerView } from '@/components/photo/LedgerView'
 import { BatchActionBar } from '@/components/photo/BatchActionBar'
 import { PhotoUploadModal } from '@/components/photo/PhotoUploadModal'
+import { OverlayCaptureModal } from '@/components/photo/OverlayCaptureModal'
 import { PhotoLightbox } from '@/components/photo/PhotoLightbox'
 import { PhaseBadge } from '@/components/photo/PhaseBadge'
 import { Button } from '@/components/ui/button'
@@ -38,8 +39,9 @@ export function ProjectDetailPage() {
   const { photos, filtered, removePhoto, setComment, setPhase, swapPhotoOrder } = usePhotos(projectId ?? '')
   const { selected, toggle, clear } = usePhotoSelection()
 
+  const beforePhotos = photos.filter((p) => p.phase === 'before')
   const hasBeforeAfter =
-    photos.some((p) => p.phase === 'before') &&
+    beforePhotos.length > 0 &&
     photos.some((p) => p.phase === 'after')
 
   const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>('all')
@@ -47,6 +49,7 @@ export function ProjectDetailPage() {
     () => (localStorage.getItem(VIEW_MODE_KEY) as ViewMode | null) ?? 'grid',
   )
   const [showUpload, setShowUpload] = useState(false)
+  const [showOverlayCapture, setShowOverlayCapture] = useState(false)
   const [lightboxPhoto, setLightboxPhoto] = useState<Photo | null>(null)
 
   const project = getProject(projectId ?? '')
@@ -101,6 +104,18 @@ export function ProjectDetailPage() {
               <Plus className="h-4 w-4" />
               写真を追加
             </Button>
+            {/* PC: 前写真を重ねて撮影（施工前写真がある場合のみ） */}
+            {beforePhotos.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="hidden lg:flex gap-1.5"
+                onClick={() => setShowOverlayCapture(true)}
+              >
+                <Layers className="h-4 w-4" />
+                前写真を重ねて撮影
+              </Button>
+            )}
             {/* Excel出力ボタン（写真が1枚以上ある場合のみ表示） */}
             {photos.length > 0 && (
               <ExportButton project={project} photos={photos} />
@@ -207,7 +222,18 @@ export function ProjectDetailPage() {
         />
       )}
 
-      {/* スマホ用 FAB */}
+      {/* スマホ用 FAB: 前写真を重ねて撮影（施工前写真がある場合のみ） */}
+      {beforePhotos.length > 0 && (
+        <button
+          onClick={() => setShowOverlayCapture(true)}
+          className="lg:hidden fixed bottom-[148px] right-4 z-50 h-14 w-14 rounded-full bg-secondary text-secondary-foreground shadow-lg flex items-center justify-center hover:bg-secondary/80 active:scale-95 transition-all"
+          aria-label="前写真を重ねて撮影"
+        >
+          <Layers className="h-6 w-6" />
+        </button>
+      )}
+
+      {/* スマホ用 FAB: 写真を追加 */}
       <button
         onClick={() => setShowUpload(true)}
         className="lg:hidden fixed bottom-20 right-4 z-50 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 active:scale-95 transition-all"
@@ -221,6 +247,14 @@ export function ProjectDetailPage() {
         open={showUpload}
         onClose={() => setShowUpload(false)}
         projectId={projectId ?? ''}
+      />
+
+      {/* 前写真を重ねて撮影モーダル */}
+      <OverlayCaptureModal
+        open={showOverlayCapture}
+        onClose={() => setShowOverlayCapture(false)}
+        projectId={projectId ?? ''}
+        beforePhotos={beforePhotos}
       />
 
       {/* ライトボックス */}
