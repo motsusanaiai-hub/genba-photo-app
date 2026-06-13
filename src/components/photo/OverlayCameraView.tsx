@@ -5,7 +5,9 @@ import { usePhotos } from '@/hooks/usePhotos'
 import { photoStorage } from '@/lib/photoStorage'
 import { captureVideoFrame, blobToFile } from '@/utils/cameraCapture'
 import { Button } from '@/components/ui/button'
+import { PHASE_OPTIONS, type Phase } from '@/types/photo'
 import type { Photo } from '@/types/photo'
+import { cn } from '@/lib/utils'
 
 const OPACITY_STORAGE_KEY = 'genba-overlay-capture-opacity'
 const DEFAULT_OPACITY = 0.5
@@ -36,6 +38,12 @@ function pointerDistance(a: { x: number; y: number }, b: { x: number; y: number 
   return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
+// 基準写真のフェーズから保存先の初期値を決める（施工前→施工後、施工中→施工中、それ以外→施工後）
+function defaultSavePhase(basePhase: Phase | null): Phase | null {
+  if (basePhase === 'during') return 'during'
+  return 'after'
+}
+
 interface Props {
   beforePhoto: Photo
   projectId: string
@@ -54,6 +62,7 @@ export function OverlayCameraView({ beforePhoto, projectId, onChangeBeforePhoto,
   const [isSaving, setIsSaving] = useState(false)
   const [justCaptured, setJustCaptured] = useState(false)
   const [captureCount, setCaptureCount] = useState(0)
+  const [savePhase, setSavePhase] = useState<Phase | null>(() => defaultSavePhase(beforePhoto.phase))
 
   const pointers = useRef<Map<number, { x: number; y: number }>>(new Map())
   const gesture = useRef<{
@@ -142,7 +151,7 @@ export function OverlayCameraView({ beforePhoto, projectId, onChangeBeforePhoto,
     try {
       const blob = await captureVideoFrame(video)
       const file = blobToFile(blob, `after_${Date.now()}.jpg`)
-      await uploadPhotos([file], 'after', () => {})
+      await uploadPhotos([file], savePhase, () => {})
       setCaptureCount((c) => c + 1)
       setJustCaptured(true)
     } finally {
@@ -161,7 +170,7 @@ export function OverlayCameraView({ beforePhoto, projectId, onChangeBeforePhoto,
           onClick={onChangeBeforePhoto}
         >
           <RefreshCw className="h-4 w-4" />
-          施工前写真を変更
+          基準写真を変更
         </Button>
 
         <div className="flex items-center gap-3">
@@ -222,6 +231,25 @@ export function OverlayCameraView({ beforePhoto, projectId, onChangeBeforePhoto,
 
       {/* 下部操作バー */}
       <div className="shrink-0 bg-black/60 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-3 relative z-30">
+        {/* 保存先フェーズ */}
+        <div className="flex items-center gap-2">
+          <span className="text-white/60 text-xs shrink-0">保存先</span>
+          <div className="flex gap-1.5 flex-1">
+            {PHASE_OPTIONS.map(({ value, label }) => (
+              <button
+                key={label}
+                onClick={() => setSavePhase(value)}
+                className={cn(
+                  'flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors active:scale-95',
+                  value === savePhase ? 'bg-white text-neutral-900' : 'bg-white/10 text-white hover:bg-white/20',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* 透明度スライダー */}
         <div className="flex items-center gap-3">
           <button

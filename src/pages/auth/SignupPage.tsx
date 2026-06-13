@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import type { AuthError } from '@supabase/supabase-js'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,6 +22,31 @@ const signupSchema = z.object({
 
 type SignupValues = z.infer<typeof signupSchema>
 
+/** Supabaseのエラーコードに応じて、原因が分かるメッセージに変換する */
+function getSignupErrorMessage(error: AuthError): string {
+  switch (error.code) {
+    case 'over_email_send_rate_limit':
+      return '確認メール送信回数の上限に達しました。\nしばらく時間を空けて再度お試しください。'
+    case 'user_already_exists':
+    case 'email_exists':
+      return 'このメールアドレスは既に登録されています。\nログイン画面からログインしてください。'
+    case 'weak_password':
+      return 'パスワードの強度が不十分です。別のパスワードをお試しください。'
+    case 'email_address_invalid':
+      return 'このメールアドレスは登録できません。別のメールアドレスをお試しください。'
+    case 'signup_disabled':
+      return '現在、新規登録を受け付けていません。'
+    case 'over_request_rate_limit':
+      return 'リクエストが多すぎます。しばらく時間を空けて再度お試しください。'
+    default:
+      // statusが無いエラーはレスポンス受信前の失敗（通信断など）
+      if (error.status === undefined) {
+        return '通信エラーが発生しました。ネットワーク接続を確認してもう一度お試しください。'
+      }
+      return 'アカウントの作成に失敗しました。もう一度お試しください。'
+  }
+}
+
 export function SignupPage() {
   const navigate = useNavigate()
   const { signUp, isConfigured } = useAuth()
@@ -36,7 +62,7 @@ export function SignupPage() {
     setErrorMessage(null)
     const { error } = await signUp(values.email, values.password, values.displayName)
     if (error) {
-      setErrorMessage('アカウントの作成に失敗しました。もう一度お試しください。')
+      setErrorMessage(getSignupErrorMessage(error))
     } else if (!isConfigured) {
       navigate('/')
     } else {
@@ -66,7 +92,7 @@ export function SignupPage() {
       <CardContent className="pt-6">
         {errorMessage && (
           <Alert variant="destructive" className="mb-4">
-            <AlertDescription>{errorMessage}</AlertDescription>
+            <AlertDescription className="whitespace-pre-line">{errorMessage}</AlertDescription>
           </Alert>
         )}
         <Form {...form}>

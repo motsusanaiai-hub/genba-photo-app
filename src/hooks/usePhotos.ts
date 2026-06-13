@@ -61,6 +61,7 @@ export function usePhotos(projectId: string) {
     }
 
     addPhotos(newPhotos)
+    return newPhotos
   }
 
   // 呼び出し側が隣接判定を行い、2つの写真IDを渡す設計

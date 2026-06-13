@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, Navigate } from 'react-router-dom'
-import { ChevronLeft, Camera, Layers, Pencil, Plus, LayoutGrid, List } from 'lucide-react'
+import { ChevronLeft, Camera, ImagePlus, Layers, Pencil, Plus, LayoutGrid, List } from 'lucide-react'
 import { ExportButton } from '@/components/project/ExportButton'
 import { BeforeAfterExportButton } from '@/components/project/BeforeAfterExportButton'
 import { useProjects } from '@/hooks/useProjects'
@@ -14,6 +14,8 @@ import { PhotoUploadModal } from '@/components/photo/PhotoUploadModal'
 import { OverlayCaptureModal } from '@/components/photo/OverlayCaptureModal'
 import { PhotoLightbox } from '@/components/photo/PhotoLightbox'
 import { PhaseBadge } from '@/components/photo/PhaseBadge'
+import { PhaseSaveToast } from '@/components/photo/PhaseSaveToast'
+import { PhotoActionSheet } from '@/components/photo/PhotoActionSheet'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { PHASE_CONFIG, type Phase } from '@/types/photo'
@@ -36,7 +38,7 @@ export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const { getProject } = useProjects()
-  const { photos, filtered, removePhoto, setComment, setPhase, swapPhotoOrder } = usePhotos(projectId ?? '')
+  const { photos, filtered, removePhoto, setComment, setPhase, swapPhotoOrder, uploadPhotos } = usePhotos(projectId ?? '')
   const { selected, toggle, clear } = usePhotoSelection()
 
   const beforePhotos = photos.filter((p) => p.phase === 'before')
@@ -51,6 +53,11 @@ export function ProjectDetailPage() {
   const [showUpload, setShowUpload] = useState(false)
   const [showOverlayCapture, setShowOverlayCapture] = useState(false)
   const [lightboxPhoto, setLightboxPhoto] = useState<Photo | null>(null)
+  const [capturing, setCapturing] = useState(false)
+  const [captureToast, setCaptureToast] = useState<{ photoIds: string[]; phase: Phase | null } | null>(null)
+  const [actionSheetPhoto, setActionSheetPhoto] = useState<Photo | null>(null)
+  const [overlayBasePhoto, setOverlayBasePhoto] = useState<Photo | null>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
 
   const project = getProject(projectId ?? '')
 
@@ -70,6 +77,70 @@ export function ProjectDetailPage() {
   const handleBatchPhaseChange = (phase: Phase | null) => {
     selected.forEach((id) => setPhase(id, phase))
     clear()
+  }
+
+  // カメラ起動FABで撮影 → 現在表示中のタブのフェーズへ自動保存（全て/未分類タブは未分類）
+  const handleCameraCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = ''
+    if (files.length === 0) return
+
+    const phase: Phase | null =
+      phaseFilter === 'before' || phaseFilter === 'during' || phaseFilter === 'after'
+        ? phaseFilter
+        : null
+
+    setCapturing(true)
+    try {
+      const uploaded = await uploadPhotos(files, phase, () => {})
+      setCaptureToast({ photoIds: uploaded.map((p) => p.id), phase })
+    } finally {
+      setCapturing(false)
+    }
+  }
+
+  const handleCaptureToastPhaseChange = (newPhase: Phase | null) => {
+    captureToast?.photoIds.forEach((id) => setPhase(id, newPhase))
+  }
+
+  // 写真の長押し → アクションシートを開く
+  const handlePhotoLongPress = (photo: Photo) => {
+    setActionSheetPhoto(photo)
+  }
+
+  const handleOpenOverlayCapture = () => {
+    setOverlayBasePhoto(null)
+    setShowOverlayCapture(true)
+  }
+
+  const handleCloseOverlayCapture = () => {
+    setShowOverlayCapture(false)
+    setOverlayBasePhoto(null)
+  }
+
+  const handleActionSheetSetPhase = (phase: Phase | null) => {
+    if (!actionSheetPhoto) return
+    setPhase(actionSheetPhoto.id, phase)
+    setActionSheetPhoto(null)
+  }
+
+  const handleUseAsOverlayBase = () => {
+    if (!actionSheetPhoto) return
+    setOverlayBasePhoto(actionSheetPhoto)
+    setShowOverlayCapture(true)
+    setActionSheetPhoto(null)
+  }
+
+  const handleStartSelectionFromActionSheet = () => {
+    if (!actionSheetPhoto) return
+    toggle(actionSheetPhoto.id)
+    setActionSheetPhoto(null)
+  }
+
+  const handleActionSheetDelete = async () => {
+    if (!actionSheetPhoto) return
+    await removePhoto(actionSheetPhoto.id)
+    setActionSheetPhoto(null)
   }
 
   // displayPhotos ベースで隣接判定 → フィルター中も正しく並び替えられる
@@ -104,16 +175,16 @@ export function ProjectDetailPage() {
               <Plus className="h-4 w-4" />
               写真を追加
             </Button>
-            {/* PC: 前写真を重ねて撮影（施工前写真がある場合のみ） */}
-            {beforePhotos.length > 0 && (
+            {/* PC: 写真を重ねて撮影（写真が1枚以上ある場合のみ） */}
+            {photos.length > 0 && (
               <Button
                 size="sm"
                 variant="outline"
                 className="hidden lg:flex gap-1.5"
-                onClick={() => setShowOverlayCapture(true)}
+                onClick={handleOpenOverlayCapture}
               >
                 <Layers className="h-4 w-4" />
-                前写真を重ねて撮影
+                写真を重ねて撮影
               </Button>
             )}
             {/* Excel出力ボタン（写真が1枚以上ある場合のみ表示） */}
@@ -217,30 +288,64 @@ export function ProjectDetailPage() {
         <PhotoGrid
           photos={displayPhotos}
           onPhotoClick={setLightboxPhoto}
+          onPhotoLongPress={handlePhotoLongPress}
           selectedIds={selected}
           onToggle={toggle}
         />
       )}
 
-      {/* スマホ用 FAB: 前写真を重ねて撮影（施工前写真がある場合のみ） */}
-      {beforePhotos.length > 0 && (
+      {/* スマホ用 FAB: 写真を重ねて撮影（写真が1枚以上ある場合のみ） */}
+      {photos.length > 0 && (
         <button
-          onClick={() => setShowOverlayCapture(true)}
-          className="lg:hidden fixed bottom-[148px] right-4 z-50 h-14 w-14 rounded-full bg-secondary text-secondary-foreground shadow-lg flex items-center justify-center hover:bg-secondary/80 active:scale-95 transition-all"
-          aria-label="前写真を重ねて撮影"
+          onClick={handleOpenOverlayCapture}
+          className="lg:hidden fixed bottom-[216px] right-4 z-50 h-14 w-14 rounded-full bg-secondary text-secondary-foreground shadow-lg flex items-center justify-center hover:bg-secondary/80 active:scale-95 transition-all"
+          aria-label="写真を重ねて撮影"
         >
           <Layers className="h-6 w-6" />
         </button>
       )}
 
-      {/* スマホ用 FAB: 写真を追加 */}
+      {/* スマホ用 FAB: ギャラリーから追加 */}
       <button
         onClick={() => setShowUpload(true)}
-        className="lg:hidden fixed bottom-20 right-4 z-50 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 active:scale-95 transition-all"
-        aria-label="写真を追加"
+        className="lg:hidden fixed bottom-[148px] right-4 z-50 h-14 w-14 rounded-full bg-secondary text-secondary-foreground shadow-lg flex items-center justify-center hover:bg-secondary/80 active:scale-95 transition-all"
+        aria-label="ギャラリーから追加"
       >
-        <Camera className="h-6 w-6" />
+        <ImagePlus className="h-6 w-6" />
       </button>
+
+      {/* スマホ用 FAB: カメラで撮影（端末カメラを直接起動） */}
+      <button
+        onClick={() => cameraInputRef.current?.click()}
+        disabled={capturing}
+        className="lg:hidden fixed bottom-20 right-4 z-50 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60"
+        aria-label="カメラで撮影"
+      >
+        {capturing ? (
+          <span className="h-6 w-6 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+        ) : (
+          <Camera className="h-6 w-6" />
+        )}
+      </button>
+
+      {/* カメラ直接起動用（非表示input） */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleCameraCapture}
+      />
+
+      {/* 撮影直後の保存先確認トースト */}
+      {captureToast && (
+        <PhaseSaveToast
+          phase={captureToast.phase}
+          onChangePhase={handleCaptureToastPhaseChange}
+          onDismiss={() => setCaptureToast(null)}
+        />
+      )}
 
       {/* アップロードモーダル */}
       <PhotoUploadModal
@@ -249,12 +354,13 @@ export function ProjectDetailPage() {
         projectId={projectId ?? ''}
       />
 
-      {/* 前写真を重ねて撮影モーダル */}
+      {/* 写真を重ねて撮影モーダル */}
       <OverlayCaptureModal
         open={showOverlayCapture}
-        onClose={() => setShowOverlayCapture(false)}
+        onClose={handleCloseOverlayCapture}
         projectId={projectId ?? ''}
-        beforePhotos={beforePhotos}
+        photos={photos}
+        initialPhoto={overlayBasePhoto}
       />
 
       {/* ライトボックス */}
@@ -276,6 +382,18 @@ export function ProjectDetailPage() {
         onPhaseChange={handleBatchPhaseChange}
         onClear={clear}
       />
+
+      {/* 写真長押しアクションシート */}
+      {actionSheetPhoto && (
+        <PhotoActionSheet
+          photo={actionSheetPhoto}
+          onClose={() => setActionSheetPhoto(null)}
+          onSetPhase={handleActionSheetSetPhase}
+          onUseAsOverlayBase={handleUseAsOverlayBase}
+          onStartSelection={handleStartSelectionFromActionSheet}
+          onDelete={handleActionSheetDelete}
+        />
+      )}
     </>
   )
 }

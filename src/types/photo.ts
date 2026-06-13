@@ -6,6 +6,14 @@ export const PHASE_CONFIG = {
   after:  { label: '施工後', badgeClass: 'bg-green-100 text-green-700',  tabClass: 'text-green-600' },
 } satisfies Record<Phase, { label: string; badgeClass: string; tabClass: string }>
 
+/** 未分類を含むフェーズ選択肢（保存先トースト・長押しメニュー・半透明撮影画面で共通使用） */
+export const PHASE_OPTIONS: { value: Phase | null; label: string }[] = [
+  { value: null,     label: '未分類' },
+  { value: 'before', label: PHASE_CONFIG.before.label },
+  { value: 'during', label: PHASE_CONFIG.during.label },
+  { value: 'after',  label: PHASE_CONFIG.after.label },
+]
+
 export interface Photo {
   id: string
   project_id: string

@@ -1,17 +1,24 @@
 import { Check } from 'lucide-react'
 import type { Photo } from '@/types/photo'
 import { PhaseBadge } from './PhaseBadge'
+import { useLongPress } from '@/hooks/useLongPress'
 import { cn } from '@/lib/utils'
 
 interface Props {
   photo: Photo
   index: number
   onClick: (photo: Photo) => void
+  onLongPress?: (photo: Photo) => void
   isSelected?: boolean
   onToggle?: (id: string) => void
 }
 
-export function PhotoCard({ photo, index, onClick, isSelected = false, onToggle }: Props) {
+export function PhotoCard({ photo, index, onClick, onLongPress, isSelected = false, onToggle }: Props) {
+  const longPress = useLongPress({
+    onLongPress: () => onLongPress?.(photo),
+    onClick: () => onClick(photo),
+  })
+
   return (
     <div
       className={cn(
@@ -19,11 +26,11 @@ export function PhotoCard({ photo, index, onClick, isSelected = false, onToggle 
         isSelected && 'ring-2 ring-primary ring-offset-1',
       )}
     >
-      {/* 写真本体（タップ → ライトボックス） */}
+      {/* 写真本体（タップ → ライトボックス / 長押し → アクションシート） */}
       <button
-        className="w-full h-full focus:outline-none focus:ring-2 focus:ring-ring"
-        onClick={() => onClick(photo)}
+        className="w-full h-full focus:outline-none focus:ring-2 focus:ring-ring touch-manipulation select-none"
         aria-label={`写真 ${index + 1}: ${photo.original_filename}`}
+        {...longPress}
       >
         <img
           src={photo.thumbnail_data_url}

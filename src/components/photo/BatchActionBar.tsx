@@ -19,7 +19,7 @@ export function BatchActionBar({ count, onPhaseChange, onClear }: Props) {
   if (count === 0) return null
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 bg-background border-t shadow-lg safe-area-bottom">
+    <div className="fixed bottom-0 left-0 right-0 z-[55] bg-background border-t shadow-lg safe-area-bottom">
       <div className="flex items-center gap-3 px-4 py-3 max-w-2xl mx-auto">
         <span className="text-sm font-medium text-muted-foreground shrink-0 min-w-[4rem]">
           {count}枚選択
