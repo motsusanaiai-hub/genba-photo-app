@@ -26,32 +26,15 @@ export function useCloudSync() {
   const syncedUserId = useRef<string | null>(null)
 
   useEffect(() => {
-    console.log('[sync] start')
-    console.log('[sync] user', user?.id)
-    console.log('[sync] configured', isSupabaseConfigured)
-    console.log('[sync] syncedUserId.current', syncedUserId.current)
-
-    if (!user || !isSupabaseConfigured) {
-      console.log('[sync] abort: no user or not configured')
-      return
-    }
-    if (syncedUserId.current === user.id) {
-      console.log('[sync] abort: already synced for', user.id)
-      return
-    }
+    if (!user || !isSupabaseConfigured) return
+    if (syncedUserId.current === user.id) return
 
     let cancelled = false
     ;(async () => {
-      console.log('[sync] before fetchCloudProjects')
       const [cloudProjects, cloudPhotos] = await Promise.all([
         fetchCloudProjects(user.id),
         fetchCloudPhotos(user.id),
       ])
-      console.log('[sync] after fetchCloudProjects', {
-        cloudProjects: cloudProjects.length,
-        cloudPhotos: cloudPhotos.length,
-        cancelled,
-      })
 
       const localProjects = useProjectStore.getState().projects
       const localPhotos = usePhotoStore.getState().photos
@@ -69,19 +52,7 @@ export function useCloudSync() {
       // クラウドには既に存在するが storage_path が未設定（アップロード未済）の写真
       const repairTargets = cloudPhotos.filter((p) => !p.storage_path)
 
-      console.log('[sync] backfill candidates', {
-        localProjects: localProjects.length,
-        localPhotos: localPhotos.length,
-        localOnlyProjects: localOnlyProjects.length,
-        localOnlyPhotos: localOnlyPhotos.length,
-        uploadTargets: localOnlyPhotos.filter((p) => !p.storage_path).length,
-        repairTargets: repairTargets.length,
-      })
-
-      if (cancelled) {
-        console.log('[sync] cancelled before backfill, skip insert/upload/merge')
-        return
-      }
+      if (cancelled) return
 
       // 未同期写真の圧縮版をStorageへアップロードしてstorage_pathを確定する
       const backfilledPhotos: Photo[] = []
@@ -89,7 +60,6 @@ export function useCloudSync() {
         let storagePath = photo.storage_path
         if (!storagePath) {
           const blob = await photoStorage.getCompressedBlob(photo.id)
-          console.log('[sync] uploadCompressedToCloud target', photo.id, 'hasBlob:', !!blob)
           if (blob) storagePath = await uploadCompressedToCloud(photo.id, user.id, blob)
         }
         backfilledPhotos.push({ ...photo, storage_path: storagePath ?? null })
@@ -99,29 +69,20 @@ export function useCloudSync() {
       const repairedPhotoMap = new Map<string, string>()
       for (const photo of repairTargets) {
         const blob = await photoStorage.getCompressedBlob(photo.id)
-        console.log('[sync] repair target', photo.id, 'hasBlob:', !!blob)
         if (!blob) continue
         const storagePath = await uploadCompressedToCloud(photo.id, user.id, blob)
         if (!storagePath) continue
         await updateCloudPhoto(photo.id, { storage_path: storagePath })
         repairedPhotoMap.set(photo.id, storagePath)
       }
-      console.log('[sync] repair done', { repaired: repairedPhotoMap.size })
 
       if (cancelled) return
 
-      console.log('[sync] insertCloudProjects/insertCloudPhotos', {
-        projects: localOnlyProjects.length,
-        photos: backfilledPhotos.length,
-      })
       await Promise.all([
         insertCloudProjects(localOnlyProjects),
         insertCloudPhotos(backfilledPhotos),
       ])
-      if (cancelled) {
-        console.log('[sync] cancelled before merge (after backfill), skip setProjects/setPhotos')
-        return
-      }
+      if (cancelled) return
 
       syncedUserId.current = user.id
 
@@ -129,10 +90,6 @@ export function useCloudSync() {
         repairedPhotoMap.has(p.id) ? { ...p, storage_path: repairedPhotoMap.get(p.id)! } : p,
       )
 
-      console.log('[sync] setProjects/setPhotos', {
-        projects: cloudProjects.length + localOnlyProjects.length,
-        photos: mergedCloudPhotos.length + backfilledPhotos.length,
-      })
       setProjects([
         ...localProjects.filter((p) => p.user_id !== user.id),
         ...cloudProjects,
@@ -146,7 +103,6 @@ export function useCloudSync() {
     })()
 
     return () => {
-      console.log('[sync] cleanup (cancelled = true)')
       cancelled = true
     }
   }, [user, setProjects, setPhotos])

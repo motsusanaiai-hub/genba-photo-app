@@ -131,23 +131,6 @@ export async function uploadCompressedToCloud(photoId: string, userId: string, b
   if (!isSupabaseConfigured || !supabase) return null
   const path = `${userId}/${photoId}.jpg`
 
-  console.log('[sync] localStorage sb- keys', Object.keys(localStorage).filter((k) => k.startsWith('sb-')))
-
-  const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-  console.log('[sync] auth', session?.user?.id, session?.user?.role, 'sessionError:', sessionError)
-
-  if (!session) {
-    const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession()
-    console.log(
-      '[sync] refreshSession',
-      refreshed.session?.user?.id,
-      refreshed.session?.user?.role,
-      'refreshError:',
-      refreshError,
-    )
-  }
-
-  console.log('[sync] uploadCompressedToCloud path', { bucket: COMPRESSED_BUCKET, path, userId, photoId })
   const { error } = await supabase.storage.from(COMPRESSED_BUCKET).upload(path, blob, {
     contentType: 'image/jpeg',
     upsert: true,
@@ -171,13 +154,9 @@ export async function downloadCloudCompressed(storagePath: string): Promise<Blob
   if (!url) return null
   try {
     const res = await fetch(url)
-    if (!res.ok) {
-      console.log('[sync] downloadCloudCompressed: response not ok', res.status, url)
-      return null
-    }
+    if (!res.ok) return null
     return await res.blob()
-  } catch (e) {
-    console.log('[sync] downloadCloudCompressed: fetch threw', e)
+  } catch {
     return null
   }
 }
