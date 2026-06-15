@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { X, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'
 import { photoStorage } from '@/lib/photoStorage'
+import { resolvePhotoThumbUrl } from '@/lib/cloudSync'
 import { PhaseBadge } from './PhaseBadge'
 import type { Photo } from '@/types/photo'
 import { formatDate } from '@/utils/dateUtils'
@@ -32,7 +33,7 @@ export function PhotoLightbox({ photo, photos, onClose, onChange, onDelete }: Pr
         revoke = url
         setImageURL(url)
       } else {
-        setImageURL(photo.thumbnail_data_url)
+        setImageURL(resolvePhotoThumbUrl(photo))
       }
       setLoading(false)
     })
@@ -40,7 +41,7 @@ export function PhotoLightbox({ photo, photos, onClose, onChange, onDelete }: Pr
     return () => {
       if (revoke) URL.revokeObjectURL(revoke)
     }
-  }, [photo.id, photo.thumbnail_data_url])
+  }, [photo.id, photo.thumbnail_data_url, photo.storage_path])
 
   const goPrev = useCallback(() => {
     if (hasPrev) onChange(photos[currentIndex - 1])
@@ -106,7 +107,7 @@ export function PhotoLightbox({ photo, photos, onClose, onChange, onDelete }: Pr
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-white border-t-transparent" />
         ) : (
           <img
-            src={imageURL ?? photo.thumbnail_data_url}
+            src={imageURL ?? resolvePhotoThumbUrl(photo)}
             alt={photo.original_filename}
             className="max-w-full max-h-full object-contain select-none"
             draggable={false}

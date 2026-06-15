@@ -2,6 +2,13 @@ import { useAuthStore } from '@/store/authStore'
 import { usePhotoStore } from '@/store/photoStore'
 import { photoStorage } from '@/lib/photoStorage'
 import { generateThumbnail, generateCompressedImage } from '@/utils/imageUtils'
+import {
+  insertCloudPhotos,
+  updateCloudPhoto,
+  deleteCloudPhoto,
+  uploadCompressedToCloud,
+  removeCompressedFromCloud,
+} from '@/lib/cloudSync'
 import type { Photo, Phase } from '@/types/photo'
 
 export function usePhotos(projectId: string) {
@@ -31,7 +38,11 @@ export function usePhotos(projectId: string) {
 
       // Excel 出力用 600px 圧縮版を生成して保存
       const compressed = await generateCompressedImage(file)
-      if (compressed) await photoStorage.saveCompressed(id, compressed)
+      let storagePath: string | null = null
+      if (compressed) {
+        await photoStorage.saveCompressed(id, compressed)
+        storagePath = await uploadCompressedToCloud(id, user?.id ?? '', compressed)
+      }
 
       const now = new Date().toISOString()
       newPhotos.push({
@@ -49,6 +60,7 @@ export function usePhotos(projectId: string) {
         sort_order: maxSortOrder + (i + 1) * 1000,
         phase,
         thumbnail_data_url: dataUrl,
+        storage_path: storagePath,
         created_at: now,
         updated_at: now,
       })
@@ -57,6 +69,7 @@ export function usePhotos(projectId: string) {
     }
 
     addPhotos(newPhotos)
+    await insertCloudPhotos(newPhotos)
     return newPhotos
   }
 
@@ -69,32 +82,44 @@ export function usePhotos(projectId: string) {
 
   // 呼び出し側が隣接判定を行い、2つの写真IDを渡す設計
   // → フィルター中の並び替えでも正しく動く
-  const swapPhotoOrder = (idA: string, idB: string) => {
+  const swapPhotoOrder = async (idA: string, idB: string) => {
     const a = projectPhotos.find((p) => p.id === idA)
     const b = projectPhotos.find((p) => p.id === idB)
     if (!a || !b) return
     updatePhoto(a.id, { sort_order: b.sort_order })
     updatePhoto(b.id, { sort_order: a.sort_order })
+    await Promise.all([
+      updateCloudPhoto(a.id, { sort_order: b.sort_order }),
+      updateCloudPhoto(b.id, { sort_order: a.sort_order }),
+    ])
   }
 
   const removePhoto = async (photoId: string) => {
+    const photo = photos.find((p) => p.id === photoId)
     await Promise.all([
       photoStorage.remove(photoId),
       photoStorage.removeCompressed(photoId),
     ])
     deletePhoto(photoId)
+    await Promise.all([
+      photo?.storage_path ? removeCompressedFromCloud(photo.storage_path) : Promise.resolve(),
+      deleteCloudPhoto(photoId),
+    ])
   }
 
-  const setPhase = (photoId: string, phase: Phase | null) => {
+  const setPhase = async (photoId: string, phase: Phase | null) => {
     updatePhoto(photoId, { phase })
+    await updateCloudPhoto(photoId, { phase })
   }
 
-  const setComment = (photoId: string, comment: string) => {
+  const setComment = async (photoId: string, comment: string) => {
     updatePhoto(photoId, { comment })
+    await updateCloudPhoto(photoId, { comment })
   }
 
-  const setFloorLocation = (photoId: string, data: { floor: string; location: string }) => {
+  const setFloorLocation = async (photoId: string, data: { floor: string; location: string }) => {
     updatePhoto(photoId, data)
+    await updateCloudPhoto(photoId, data)
   }
 
   return {

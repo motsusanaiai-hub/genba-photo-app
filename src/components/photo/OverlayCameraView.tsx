@@ -7,6 +7,7 @@ import { captureVideoFrame, blobToFile } from '@/utils/cameraCapture'
 import { Button } from '@/components/ui/button'
 import { PHASE_OPTIONS, type Phase } from '@/types/photo'
 import type { Photo } from '@/types/photo'
+import { resolvePhotoThumbUrl } from '@/lib/cloudSync'
 import { cn } from '@/lib/utils'
 
 const OPACITY_STORAGE_KEY = 'genba-overlay-capture-opacity'
@@ -80,13 +81,13 @@ export function OverlayCameraView({ beforePhoto, projectId, onChangeBeforePhoto,
         revoke = url
         setOverlayUrl(url)
       } else {
-        setOverlayUrl(beforePhoto.thumbnail_data_url)
+        setOverlayUrl(resolvePhotoThumbUrl(beforePhoto))
       }
     })
     return () => {
       if (revoke) URL.revokeObjectURL(revoke)
     }
-  }, [beforePhoto.id, beforePhoto.thumbnail_data_url])
+  }, [beforePhoto.id, beforePhoto.thumbnail_data_url, beforePhoto.storage_path])
 
   // 透明度の最終値を保存
   useEffect(() => {

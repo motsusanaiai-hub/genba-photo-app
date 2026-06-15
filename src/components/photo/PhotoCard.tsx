@@ -2,6 +2,7 @@ import { Check } from 'lucide-react'
 import type { Photo } from '@/types/photo'
 import { PhaseBadge } from './PhaseBadge'
 import { useLongPress } from '@/hooks/useLongPress'
+import { resolvePhotoThumbUrl } from '@/lib/cloudSync'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -45,7 +46,7 @@ export function PhotoCard({ photo, index, onClick, onLongPress, isSelected = fal
         {...longPress}
       >
         <img
-          src={photo.thumbnail_data_url}
+          src={resolvePhotoThumbUrl(photo)}
           alt={photo.original_filename}
           className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
           loading="lazy"

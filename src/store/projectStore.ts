@@ -4,6 +4,7 @@ import type { Project } from '@/types/project'
 
 interface ProjectState {
   projects: Project[]
+  setProjects: (projects: Project[]) => void
   addProject: (project: Project) => void
   updateProject: (id: string, data: Partial<Project>) => void
   deleteProject: (id: string) => void
@@ -13,6 +14,7 @@ export const useProjectStore = create<ProjectState>()(
   persist(
     (set) => ({
       projects: [],
+      setProjects: (projects) => set({ projects }),
       addProject: (project) =>
         set((state) => ({ projects: [...state.projects, project] })),
       updateProject: (id, data) =>

@@ -1,6 +1,7 @@
 import { useAuthStore } from '@/store/authStore'
 import { useProjectStore } from '@/store/projectStore'
 import { usePhotoStore } from '@/store/photoStore'
+import { insertCloudProjects, updateCloudProject, deleteCloudProject } from '@/lib/cloudSync'
 import type { ProjectFormData, ProjectWithCount } from '@/types/project'
 
 export function useProjects() {
@@ -17,7 +18,7 @@ export function useProjects() {
       photo_count: photos.filter((ph) => ph.project_id === p.id).length,
     }))
 
-  const createProject = (data: ProjectFormData) => {
+  const createProject = async (data: ProjectFormData) => {
     const now = new Date().toISOString()
     const project = {
       id: crypto.randomUUID(),
@@ -32,20 +33,24 @@ export function useProjects() {
       updated_at: now,
     }
     addProject(project)
+    await insertCloudProjects([project])
     return project
   }
 
-  const editProject = (id: string, data: ProjectFormData) => {
-    updateProject(id, {
+  const editProject = async (id: string, data: ProjectFormData) => {
+    const update = {
       name: data.name,
       location: data.location,
       start_date: data.start_date || null,
       end_date: data.end_date || null,
-    })
+    }
+    updateProject(id, update)
+    await updateCloudProject(id, update)
   }
 
-  const removeProject = (id: string) => {
+  const removeProject = async (id: string) => {
     deleteProject(id)
+    await deleteCloudProject(id)
   }
 
   const getProject = (id: string) => projects.find((p) => p.id === id)

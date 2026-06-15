@@ -1,8 +1,11 @@
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { BottomNav } from './BottomNav'
+import { useCloudSync } from '@/hooks/useCloudSync'
 
 export function AppLayout() {
+  useCloudSync()
+
   return (
     <div className="flex h-screen bg-background overflow-hidden">
       <Sidebar />

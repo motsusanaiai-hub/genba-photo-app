@@ -28,7 +28,8 @@ export interface Photo {
   location?: string              // 場所（例: "機械室"）。旧データには存在しない場合がある
   sort_order: number
   phase: Phase | null
-  thumbnail_data_url: string    // base64 data URL（モック専用。Supabase移行時は storage_path に変更）
+  thumbnail_data_url: string    // base64 data URL（アップロード端末でのローカル即時表示用。他端末同期分は空文字）
+  storage_path: string | null   // Supabase Storage上の600px圧縮写真パス（${user_id}/${id}.jpg）
   created_at: string
   updated_at: string
 }

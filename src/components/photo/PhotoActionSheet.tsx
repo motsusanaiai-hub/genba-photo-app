@@ -2,6 +2,7 @@ import { CheckSquare, Layers, Trash2 } from 'lucide-react'
 import { PhaseBadge } from './PhaseBadge'
 import { PHASE_OPTIONS, type Phase } from '@/types/photo'
 import type { Photo } from '@/types/photo'
+import { resolvePhotoThumbUrl } from '@/lib/cloudSync'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -29,7 +30,7 @@ export function PhotoActionSheet({ photo, onClose, onSetPhase, onUseAsOverlayBas
         {/* 対象写真 */}
         <div className="flex items-center gap-3 px-4 py-3 border-b">
           <img
-            src={photo.thumbnail_data_url}
+            src={resolvePhotoThumbUrl(photo)}
             alt={photo.original_filename}
             className="h-12 w-12 rounded-md object-cover shrink-0"
           />

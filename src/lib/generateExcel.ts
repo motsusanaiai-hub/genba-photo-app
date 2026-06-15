@@ -4,6 +4,7 @@ import type { Photo } from '@/types/photo'
 import type { Project } from '@/types/project'
 import { PHASE_CONFIG } from '@/types/photo'
 import { photoStorage } from '@/lib/photoStorage'
+import { downloadCloudCompressed } from '@/lib/cloudSync'
 
 // ─── レイアウト定数 ───────────────────────────────────────────
 //
@@ -322,12 +323,18 @@ async function photoToJpegBase64(photo: Photo): Promise<string | null> {
 
 /**
  * 写真を JPEG Blob として取得する（Excel埋め込み・ZIP出力で共通利用）。
- * 1st: IndexedDB の 600px 圧縮版 / 2nd: 原本から 600px にリサイズ / 3rd: thumbnail_data_url
+ * 1st: IndexedDB の 600px 圧縮版 / 2nd: Supabase Storage の600px圧縮版（他端末アップロード分）
+ * 3rd: 原本から 600px にリサイズ / 4th: thumbnail_data_url
  */
 export async function getPhotoJpegBlob(photo: Photo): Promise<Blob | null> {
   try {
     const compressedBlob = await photoStorage.getCompressedBlob(photo.id)
     if (compressedBlob) return compressedBlob
+
+    if (photo.storage_path) {
+      const cloudBlob = await downloadCloudCompressed(photo.storage_path)
+      if (cloudBlob) return cloudBlob
+    }
 
     const url = await photoStorage.getObjectURL(photo.id)
     if (url) {

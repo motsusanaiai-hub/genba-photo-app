@@ -14,7 +14,7 @@ export function ProjectNewPage() {
 
   const handleSubmit = async (data: ProjectFormData) => {
     setIsLoading(true)
-    const project = createProject(data)
+    const project = await createProject(data)
     navigate(`/projects/${project.id}`, { replace: true })
   }
 

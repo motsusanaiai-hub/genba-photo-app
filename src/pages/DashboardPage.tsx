@@ -9,11 +9,11 @@ export function DashboardPage() {
   const navigate = useNavigate()
   const { projects, removeProject } = useProjects()
 
-  const handleDelete = (projectId: string, projectName: string) => {
+  const handleDelete = async (projectId: string, projectName: string) => {
     const confirmed = window.confirm(
       `「${projectName}」を削除しますか？\n\nこの操作は取り消せません。`,
     )
-    if (confirmed) removeProject(projectId)
+    if (confirmed) await removeProject(projectId)
   }
 
   return (

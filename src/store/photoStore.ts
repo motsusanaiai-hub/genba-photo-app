@@ -4,6 +4,7 @@ import type { Photo } from '@/types/photo'
 
 interface PhotoState {
   photos: Photo[]
+  setPhotos: (photos: Photo[]) => void
   addPhotos: (photos: Photo[]) => void
   updatePhoto: (id: string, data: Partial<Photo>) => void
   deletePhoto: (id: string) => void
@@ -13,6 +14,7 @@ export const usePhotoStore = create<PhotoState>()(
   persist(
     (set) => ({
       photos: [],
+      setPhotos: (photos) => set({ photos }),
       addPhotos: (newPhotos) =>
         set((state) => ({ photos: [...state.photos, ...newPhotos] })),
       updatePhoto: (id, data) =>

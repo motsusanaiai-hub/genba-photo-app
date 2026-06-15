@@ -19,16 +19,16 @@ export function ProjectEditPage() {
 
   const handleSubmit = async (data: ProjectFormData) => {
     setIsLoading(true)
-    editProject(project.id, data)
+    await editProject(project.id, data)
     navigate(`/projects/${project.id}`, { replace: true })
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     const confirmed = window.confirm(
       `「${project.name}」を削除しますか？\n\nこの操作は取り消せません。`,
     )
     if (confirmed) {
-      removeProject(project.id)
+      await removeProject(project.id)
       navigate('/', { replace: true })
     }
   }
