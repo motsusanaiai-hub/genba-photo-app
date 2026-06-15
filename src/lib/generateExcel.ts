@@ -90,6 +90,14 @@ export function calcImagePlacement(
 // ─── メイン ──────────────────────────────────────────────────
 
 export async function generateExcel(project: Project, photos: Photo[]): Promise<void> {
+  const wb = await buildExcelWorkbook(project, photos)
+  const buffer = await wb.xlsx.writeBuffer()
+  const safeName = project.name.replace(/[\\/:*?"<>|]/g, '_')
+  triggerDownload(buffer as ArrayBuffer, `${safeName}_工事写真台帳.xlsx`)
+}
+
+/** 標準（2×3）レイアウトの Workbook を構築する（ZIP出力など他の出力先からも再利用） */
+export async function buildExcelWorkbook(project: Project, photos: Photo[]): Promise<Workbook> {
   const wb = new Workbook()
   wb.creator = '現場フォト'
   wb.created = new Date()
@@ -110,9 +118,7 @@ export async function generateExcel(project: Project, photos: Photo[]): Promise<
   photoOffset += duringPhotos.length
   await buildPhotoSheet(wb, afterPhotos,  '施工後', photoOffset)
 
-  const buffer = await wb.xlsx.writeBuffer()
-  const safeName = project.name.replace(/[\\/:*?"<>|]/g, '_')
-  triggerDownload(buffer as ArrayBuffer, `${safeName}_工事写真台帳.xlsx`)
+  return wb
 }
 
 // ─── 表紙シート ───────────────────────────────────────────────
@@ -305,21 +311,32 @@ export async function embedImage(
 // ─── 画像変換ユーティリティ ───────────────────────────────────
 
 async function photoToJpegBase64(photo: Photo): Promise<string | null> {
+  const blob = await getPhotoJpegBlob(photo)
+  if (!blob) return null
   try {
-    // 1st: IndexedDB の 600px 圧縮版を取得
+    return await blobToBase64(blob)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 写真を JPEG Blob として取得する（Excel埋め込み・ZIP出力で共通利用）。
+ * 1st: IndexedDB の 600px 圧縮版 / 2nd: 原本から 600px にリサイズ / 3rd: thumbnail_data_url
+ */
+export async function getPhotoJpegBlob(photo: Photo): Promise<Blob | null> {
+  try {
     const compressedBlob = await photoStorage.getCompressedBlob(photo.id)
-    if (compressedBlob) {
-      return await blobToBase64(compressedBlob)
-    }
-    // 2nd: 圧縮版がない場合は原本から 600px にリサイズ（既存写真 or 生成失敗時）
+    if (compressedBlob) return compressedBlob
+
     const url = await photoStorage.getObjectURL(photo.id)
     if (url) {
-      const b64 = await urlToJpegBase64(url, 600)
+      const blob = await urlToJpegBlob(url, 600)
       URL.revokeObjectURL(url)
-      return b64
+      return blob
     }
-    // 3rd: 原本もない場合は thumbnail_data_url にフォールバック
-    return await dataUrlToJpegBase64(photo.thumbnail_data_url)
+
+    return await dataUrlToJpegBlob(photo.thumbnail_data_url)
   } catch {
     return null
   }
@@ -334,7 +351,16 @@ function blobToBase64(blob: Blob): Promise<string> {
   })
 }
 
-function urlToJpegBase64(url: string, maxLong: number): Promise<string> {
+function canvasToJpegBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob)
+      else reject(new Error('Canvas toBlob failed'))
+    }, 'image/jpeg', 0.85)
+  })
+}
+
+function urlToJpegBlob(url: string, maxLong: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => {
@@ -345,14 +371,14 @@ function urlToJpegBase64(url: string, maxLong: number): Promise<string> {
       canvas.width  = w
       canvas.height = h
       canvas.getContext('2d')!.drawImage(img, 0, 0, w, h)
-      resolve(canvas.toDataURL('image/jpeg', 0.85).split(',')[1])
+      canvasToJpegBlob(canvas).then(resolve, reject)
     }
     img.onerror = () => reject(new Error('Image load failed'))
     img.src = url
   })
 }
 
-function dataUrlToJpegBase64(dataUrl: string): Promise<string> {
+function dataUrlToJpegBlob(dataUrl: string): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => {
@@ -360,7 +386,7 @@ function dataUrlToJpegBase64(dataUrl: string): Promise<string> {
       canvas.width  = img.naturalWidth
       canvas.height = img.naturalHeight
       canvas.getContext('2d')!.drawImage(img, 0, 0)
-      resolve(canvas.toDataURL('image/jpeg', 0.85).split(',')[1])
+      canvasToJpegBlob(canvas).then(resolve, reject)
     }
     img.onerror = () => reject(new Error('DataURL load failed'))
     img.src = dataUrl
@@ -369,7 +395,7 @@ function dataUrlToJpegBase64(dataUrl: string): Promise<string> {
 
 // ─── その他ヘルパー ───────────────────────────────────────────
 
-function phaseLabel(photo: Photo | undefined): string {
+export function phaseLabel(photo: Photo | undefined): string {
   if (!photo?.phase) return ''
   return PHASE_CONFIG[photo.phase].label
 }
@@ -384,6 +410,11 @@ export function triggerDownload(buffer: ArrayBuffer, filename: string): void {
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   })
+  triggerBlobDownload(blob, filename)
+}
+
+/** 任意の Blob をファイルとしてダウンロードさせる（xlsx / zip 共通） */
+export function triggerBlobDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   const a   = document.createElement('a')
   a.href     = url

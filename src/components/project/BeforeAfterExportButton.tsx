@@ -36,7 +36,7 @@ export function BeforeAfterExportButton({ project, photos }: Props) {
   const label =
     status === 'loading' ? '生成中...' :
     status === 'error'   ? 'エラー'   :
-                           '施工前後'
+                           '前後比較'
 
   return (
     <Button
@@ -45,7 +45,7 @@ export function BeforeAfterExportButton({ project, photos }: Props) {
       onClick={handleExport}
       disabled={status === 'loading'}
       className="gap-1.5"
-      aria-label="施工前後Excel出力"
+      aria-label="前後比較レイアウトでExcel出力"
     >
       {icon}
       <span className="hidden sm:inline">{label}</span>

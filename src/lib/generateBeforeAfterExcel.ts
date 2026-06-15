@@ -53,6 +53,14 @@ export async function generateBeforeAfterExcel(
   project: Project,
   photos: Photo[],
 ): Promise<void> {
+  const wb = await buildBeforeAfterWorkbook(project, photos)
+  const buffer = await wb.xlsx.writeBuffer()
+  const safeName = project.name.replace(/[\\/:*?"<>|]/g, '_')
+  triggerDownload(buffer as ArrayBuffer, `${safeName}_施工前後写真台帳.xlsx`)
+}
+
+/** 前後比較レイアウトの Workbook を構築する（ZIP出力など他の出力先からも再利用） */
+export async function buildBeforeAfterWorkbook(project: Project, photos: Photo[]): Promise<Workbook> {
   const pairs = pairBeforeAfter(photos)
 
   const wb = new Workbook()
@@ -66,9 +74,7 @@ export async function generateBeforeAfterExcel(
   buildCoverSheet(wb, project, totalPhotos, '施工前後写真台帳')
   await buildBeforeAfterSheet(wb, pairs)
 
-  const buffer = await wb.xlsx.writeBuffer()
-  const safeName = project.name.replace(/[\\/:*?"<>|]/g, '_')
-  triggerDownload(buffer as ArrayBuffer, `${safeName}_施工前後写真台帳.xlsx`)
+  return wb
 }
 
 // ─── 施工前後シート ───────────────────────────────────────────

@@ -24,6 +24,8 @@ export interface Photo {
   height: number | null
   taken_at: string | null        // ISO datetime（EXIFまたは file.lastModified）
   comment: string
+  floor?: string                 // 階数（例: "2階"）。旧データには存在しない場合がある
+  location?: string              // 場所（例: "機械室"）。旧データには存在しない場合がある
   sort_order: number
   phase: Phase | null
   thumbnail_data_url: string    // base64 data URL（モック専用。Supabase移行時は storage_path に変更）

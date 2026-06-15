@@ -11,7 +11,7 @@ interface Props {
 
 type Status = 'idle' | 'loading' | 'error'
 
-export function ExportButton({ project, photos }: Props) {
+export function LargePhotoExportButton({ project, photos }: Props) {
   const [status, setStatus] = useState<Status>('idle')
 
   const handleExport = async () => {
@@ -19,11 +19,11 @@ export function ExportButton({ project, photos }: Props) {
     setStatus('loading')
     try {
       // 動的インポートで ExcelJS チャンクを分離（初期バンドルに含まない）
-      const { generateExcel } = await import('@/lib/generateExcel')
-      await generateExcel(project, photos)
+      const { generateOneColumnExcel } = await import('@/lib/generateOneColumnExcel')
+      await generateOneColumnExcel(project, photos)
       setStatus('idle')
     } catch (err) {
-      console.error('[Excel出力] failed:', err)
+      console.error('[大判Excel出力] failed:', err)
       setStatus('error')
       setTimeout(() => setStatus('idle'), 3000)
     }
@@ -37,7 +37,7 @@ export function ExportButton({ project, photos }: Props) {
   const label =
     status === 'loading' ? '生成中...' :
     status === 'error'   ? 'エラー'   :
-                           '標準（2×3）'
+                           '大写真（1×3）'
 
   return (
     <Button
@@ -46,7 +46,7 @@ export function ExportButton({ project, photos }: Props) {
       onClick={handleExport}
       disabled={status === 'loading'}
       className="gap-1.5"
-      aria-label="標準（2×3）レイアウトでExcel出力"
+      aria-label="大写真（1×3）レイアウトでExcel出力"
     >
       {icon}
       {/* PC: テキストあり / モバイル: アイコンのみ */}

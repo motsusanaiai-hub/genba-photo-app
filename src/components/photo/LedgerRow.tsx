@@ -10,6 +10,7 @@ interface Props {
   index: number
   onPhotoClick: (photo: Photo) => void
   onCommentChange: (photoId: string, comment: string) => void
+  onFloorLocationChange: (photoId: string, data: { floor: string; location: string }) => void
   prevComment?: string    // 「上の写真と同じ」用
   onMoveUp?: () => void   // undefined = ボタン非表示（先頭行）
   onMoveDown?: () => void // undefined = ボタン非表示（末尾行）
@@ -20,16 +21,22 @@ export function LedgerRow({
   index,
   onPhotoClick,
   onCommentChange,
+  onFloorLocationChange,
   prevComment,
   onMoveUp,
   onMoveDown,
 }: Props) {
   const [local, setLocal] = useState(photo.comment)
+  const [localFloor, setLocalFloor] = useState(photo.floor ?? '')
+  const [localLocation, setLocalLocation] = useState(photo.location ?? '')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isFirst = useRef(true)
+  const isFirstMeta = useRef(true)
   // Ref pattern: callback を deps に入れず常に最新版を参照
   const callbackRef = useRef(onCommentChange)
   callbackRef.current = onCommentChange
+  const metaCallbackRef = useRef(onFloorLocationChange)
+  metaCallbackRef.current = onFloorLocationChange
 
   // 400ms デバウンス自動保存
   useEffect(() => {
@@ -40,6 +47,19 @@ export function LedgerRow({
     const t = setTimeout(() => callbackRef.current(photo.id, local), 400)
     return () => clearTimeout(t)
   }, [local, photo.id])
+
+  // 400ms デバウンス自動保存（階数・場所）
+  useEffect(() => {
+    if (isFirstMeta.current) {
+      isFirstMeta.current = false
+      return
+    }
+    const t = setTimeout(
+      () => metaCallbackRef.current(photo.id, { floor: localFloor, location: localLocation }),
+      400,
+    )
+    return () => clearTimeout(t)
+  }, [localFloor, localLocation, photo.id])
 
   // テキストエリア高さ自動伸縮
   useLayoutEffect(() => {
@@ -123,6 +143,42 @@ export function LedgerRow({
             <p className="text-xs text-muted-foreground truncate leading-none">
               {photo.original_filename}
             </p>
+          </div>
+        </div>
+
+        {/* 中段: 階数・場所入力 */}
+        <div className="flex items-center gap-2">
+          <div className="flex-1 flex items-center gap-1.5">
+            <label
+              htmlFor={`floor-${photo.id}`}
+              className="text-xs text-muted-foreground shrink-0 cursor-pointer"
+            >
+              階数
+            </label>
+            <input
+              id={`floor-${photo.id}`}
+              type="text"
+              value={localFloor}
+              onChange={(e) => setLocalFloor(e.target.value)}
+              placeholder="例: 2階"
+              className="flex-1 text-sm rounded-md border bg-background border-input px-2 py-1 min-w-0 focus:outline-none focus:ring-1 focus:ring-ring transition-colors placeholder:text-muted-foreground"
+            />
+          </div>
+          <div className="flex-1 flex items-center gap-1.5">
+            <label
+              htmlFor={`location-${photo.id}`}
+              className="text-xs text-muted-foreground shrink-0 cursor-pointer"
+            >
+              場所
+            </label>
+            <input
+              id={`location-${photo.id}`}
+              type="text"
+              value={localLocation}
+              onChange={(e) => setLocalLocation(e.target.value)}
+              placeholder="例: 機械室"
+              className="flex-1 text-sm rounded-md border bg-background border-input px-2 py-1 min-w-0 focus:outline-none focus:ring-1 focus:ring-ring transition-colors placeholder:text-muted-foreground"
+            />
           </div>
         </div>
 

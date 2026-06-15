@@ -50,6 +50,8 @@ export function usePhotos(projectId: string) {
         height,
         taken_at: new Date(file.lastModified).toISOString(),
         comment: '',
+        floor: '',
+        location: '',
         sort_order: maxSortOrder + (i + 1) * 1000,
         phase,
         thumbnail_data_url: dataUrl,
@@ -90,6 +92,10 @@ export function usePhotos(projectId: string) {
     updatePhoto(photoId, { comment })
   }
 
+  const setFloorLocation = (photoId: string, data: { floor: string; location: string }) => {
+    updatePhoto(photoId, data)
+  }
+
   return {
     photos: projectPhotos,
     filtered,
@@ -98,5 +104,6 @@ export function usePhotos(projectId: string) {
     removePhoto,
     setPhase,
     setComment,
+    setFloorLocation,
   }
 }

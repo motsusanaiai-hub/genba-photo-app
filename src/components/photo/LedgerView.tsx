@@ -5,10 +5,11 @@ interface Props {
   photos: Photo[]
   onPhotoClick: (photo: Photo) => void
   onCommentChange: (photoId: string, comment: string) => void
+  onFloorLocationChange: (photoId: string, data: { floor: string; location: string }) => void
   onMovePhoto?: (photoId: string, direction: 'up' | 'down') => void  // optional: なければ▲▼非表示
 }
 
-export function LedgerView({ photos, onPhotoClick, onCommentChange, onMovePhoto }: Props) {
+export function LedgerView({ photos, onPhotoClick, onCommentChange, onFloorLocationChange, onMovePhoto }: Props) {
   const commented = photos.filter((p) => p.comment.trim()).length
   const allDone = photos.length > 0 && commented === photos.length
 
@@ -35,6 +36,7 @@ export function LedgerView({ photos, onPhotoClick, onCommentChange, onMovePhoto 
             index={index}
             onPhotoClick={onPhotoClick}
             onCommentChange={onCommentChange}
+            onFloorLocationChange={onFloorLocationChange}
             prevComment={index > 0 ? photos[index - 1].comment : undefined}
             onMoveUp={
               onMovePhoto && index > 0

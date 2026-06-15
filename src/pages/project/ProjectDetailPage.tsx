@@ -3,6 +3,8 @@ import { useNavigate, useParams, Navigate } from 'react-router-dom'
 import { ChevronLeft, Camera, ImagePlus, Layers, Pencil, Plus, LayoutGrid, List } from 'lucide-react'
 import { ExportButton } from '@/components/project/ExportButton'
 import { BeforeAfterExportButton } from '@/components/project/BeforeAfterExportButton'
+import { LargePhotoExportButton } from '@/components/project/LargePhotoExportButton'
+import { ZipExportButton } from '@/components/project/ZipExportButton'
 import { useProjects } from '@/hooks/useProjects'
 import { usePhotos } from '@/hooks/usePhotos'
 import { usePhotoSelection } from '@/hooks/usePhotoSelection'
@@ -38,7 +40,7 @@ export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const { getProject } = useProjects()
-  const { photos, filtered, removePhoto, setComment, setPhase, swapPhotoOrder, uploadPhotos } = usePhotos(projectId ?? '')
+  const { photos, filtered, removePhoto, setComment, setFloorLocation, setPhase, swapPhotoOrder, uploadPhotos } = usePhotos(projectId ?? '')
   const { selected, toggle, clear } = usePhotoSelection()
 
   const beforePhotos = photos.filter((p) => p.phase === 'before')
@@ -191,9 +193,17 @@ export function ProjectDetailPage() {
             {photos.length > 0 && (
               <ExportButton project={project} photos={photos} />
             )}
+            {/* 大写真（1列3段）テンプレート（写真が1枚以上ある場合のみ表示） */}
+            {photos.length > 0 && (
+              <LargePhotoExportButton project={project} photos={photos} />
+            )}
             {/* 施工前後テンプレート（before / after が各1枚以上ある場合のみ表示） */}
             {hasBeforeAfter && (
               <BeforeAfterExportButton project={project} photos={photos} />
+            )}
+            {/* ZIP出力（Excel台帳 + 圧縮写真一式、写真が1枚以上ある場合のみ表示） */}
+            {photos.length > 0 && (
+              <ZipExportButton project={project} photos={photos} />
             )}
             {/* 編集ボタン */}
             <Button
@@ -282,6 +292,7 @@ export function ProjectDetailPage() {
           photos={displayPhotos}
           onPhotoClick={setLightboxPhoto}
           onCommentChange={setComment}
+          onFloorLocationChange={setFloorLocation}
           onMovePhoto={handleMovePhoto}
         />
       ) : (
