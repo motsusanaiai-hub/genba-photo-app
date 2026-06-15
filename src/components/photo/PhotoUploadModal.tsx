@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X, ImagePlus, Upload } from 'lucide-react'
 import { usePhotos } from '@/hooks/usePhotos'
 import { Button } from '@/components/ui/button'
@@ -15,28 +15,44 @@ interface Props {
   open: boolean
   onClose: () => void
   projectId: string
+  defaultPhase: Phase | null
 }
 
-export function PhotoUploadModal({ open, onClose, projectId }: Props) {
-  const { uploadPhotos } = usePhotos(projectId)
+interface SelectedFile {
+  file: File
+  preview: string
+  phase: Phase | null
+}
+
+export function PhotoUploadModal({ open, onClose, projectId, defaultPhase }: Props) {
+  const { uploadPhotosWithPhases } = usePhotos(projectId)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const [files, setFiles] = useState<File[]>([])
-  const [previews, setPreviews] = useState<string[]>([])
+  const [selected, setSelected] = useState<SelectedFile[]>([])
   const [phase, setPhase] = useState<Phase | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
 
+  // モーダルを開いた瞬間のページ側フェーズタブを初期選択に反映する。
+  // 開いた後にページ側のタブが変わってもこの選択には追従させない。
+  useEffect(() => {
+    if (open) setPhase(defaultPhase)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
   if (!open) return null
 
+  // 追加済みの選択は上書きせず、現在選択中のフェーズを各ファイルに記録して追加する
   const handleFiles = (incoming: File[]) => {
     const images = incoming.filter((f) => f.type.startsWith('image/') || f.name.match(/\.(heic|heif)$/i))
     if (images.length === 0) return
-    // 既存の preview URL を解放
-    previews.forEach((url) => URL.revokeObjectURL(url))
-    setFiles(images)
-    setPreviews(images.map((f) => URL.createObjectURL(f)))
+    const additions: SelectedFile[] = images.map((f) => ({
+      file: f,
+      preview: URL.createObjectURL(f),
+      phase,
+    }))
+    setSelected((prev) => [...prev, ...additions])
   }
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -51,19 +67,20 @@ export function PhotoUploadModal({ open, onClose, projectId }: Props) {
   }
 
   const handleUpload = async () => {
-    if (files.length === 0) return
+    if (selected.length === 0) return
     setUploading(true)
-    setProgress({ done: 0, total: files.length })
-    await uploadPhotos(files, phase, (done, total) => setProgress({ done, total }))
+    setProgress({ done: 0, total: selected.length })
+    await uploadPhotosWithPhases(
+      selected.map(({ file, phase }) => ({ file, phase })),
+      (done, total) => setProgress({ done, total }),
+    )
     cleanup()
     onClose()
   }
 
   const cleanup = () => {
-    previews.forEach((url) => URL.revokeObjectURL(url))
-    setFiles([])
-    setPreviews([])
-    setPhase(null)
+    selected.forEach(({ preview }) => URL.revokeObjectURL(preview))
+    setSelected([])
     setUploading(false)
     setProgress({ done: 0, total: 0 })
   }
@@ -73,6 +90,8 @@ export function PhotoUploadModal({ open, onClose, projectId }: Props) {
     cleanup()
     onClose()
   }
+
+  const countByPhase = (p: Phase | null) => selected.filter((s) => s.phase === p).length
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end lg:items-center justify-center">
@@ -109,8 +128,8 @@ export function PhotoUploadModal({ open, onClose, projectId }: Props) {
             >
               <ImagePlus className="h-8 w-8 text-muted-foreground" />
               <p className="text-sm font-medium text-center">
-                {files.length > 0
-                  ? `${files.length}枚選択中　（タップで変更）`
+                {selected.length > 0
+                  ? 'タップしてさらに追加　またはドラッグ＆ドロップ'
                   : 'タップして選択　またはドラッグ＆ドロップ'}
               </p>
               <p className="text-xs text-muted-foreground">JPG・PNG・HEIC対応</p>
@@ -124,27 +143,40 @@ export function PhotoUploadModal({ open, onClose, projectId }: Props) {
             accept="image/*"
             multiple
             className="hidden"
-            onChange={(e) => handleFiles(Array.from(e.target.files ?? []))}
+            onChange={(e) => {
+              handleFiles(Array.from(e.target.files ?? []))
+              e.target.value = ''
+            }}
           />
 
+          {/* 選択枚数・フェーズ別の内訳 */}
+          {selected.length > 0 && !uploading && (
+            <div className="text-sm">
+              <p className="font-medium">{selected.length}枚選択中</p>
+              <p className="text-xs text-muted-foreground">
+                施工前{countByPhase('before')}枚 / 施工中{countByPhase('during')}枚 / 施工後{countByPhase('after')}枚 / 未分類{countByPhase(null)}枚
+              </p>
+            </div>
+          )}
+
           {/* プレビューサムネイル */}
-          {previews.length > 0 && !uploading && (
+          {selected.length > 0 && !uploading && (
             <div className="flex gap-2 overflow-x-auto pb-1">
-              {previews.map((url, i) => (
+              {selected.map((s, i) => (
                 <img
                   key={i}
-                  src={url}
-                  alt={files[i]?.name}
+                  src={s.preview}
+                  alt={s.file.name}
                   className="h-16 w-16 rounded-md object-cover shrink-0 border"
                 />
               ))}
             </div>
           )}
 
-          {/* フェーズ一括設定 */}
+          {/* 追加する写真の施工フェーズ */}
           {!uploading && (
             <div>
-              <p className="text-sm font-medium mb-2">施工フェーズを一括設定</p>
+              <p className="text-sm font-medium mb-2">追加する写真の施工フェーズ</p>
               <div className="grid grid-cols-3 gap-2">
                 {PHASE_OPTIONS.map(({ value, label }) => (
                   <button
@@ -163,7 +195,7 @@ export function PhotoUploadModal({ open, onClose, projectId }: Props) {
               </div>
               {!phase && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  未選択でもアップロード後に個別設定できます
+                  未分類として追加されます（アップロード後に個別設定も可能）
                 </p>
               )}
             </div>
@@ -200,7 +232,7 @@ export function PhotoUploadModal({ open, onClose, projectId }: Props) {
           <Button
             className="flex-1"
             onClick={handleUpload}
-            disabled={files.length === 0 || uploading}
+            disabled={selected.length === 0 || uploading}
           >
             <Upload className="h-4 w-4" />
             {uploading ? '処理中...' : `アップロード開始`}

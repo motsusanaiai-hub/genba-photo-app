@@ -18,7 +18,7 @@ export function ZipExportButton({ project, photos }: Props) {
     if (status === 'loading') return
     setStatus('loading')
     try {
-      // 動的インポートで ExcelJS / JSZip チャンクを分離（初期バンドルに含まない）
+      // 動的インポートで JSZip チャンクを分離（初期バンドルに含まない）
       const { generateZip } = await import('@/lib/generateZip')
       await generateZip(project, photos)
       setStatus('idle')
@@ -37,7 +37,7 @@ export function ZipExportButton({ project, photos }: Props) {
   const label =
     status === 'loading' ? '生成中...' :
     status === 'error'   ? 'エラー'   :
-                           'ZIP出力'
+                           '写真ZIP'
 
   return (
     <Button
@@ -46,7 +46,7 @@ export function ZipExportButton({ project, photos }: Props) {
       onClick={handleExport}
       disabled={status === 'loading'}
       className="gap-1.5"
-      aria-label="Excel台帳と圧縮写真をまとめたZIPを出力"
+      aria-label="圧縮写真をまとめたZIPを出力"
     >
       {icon}
       {/* PC: テキストあり / モバイル: アイコンのみ */}

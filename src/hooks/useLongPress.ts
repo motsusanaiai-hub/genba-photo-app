@@ -5,7 +5,7 @@ const MOVE_THRESHOLD_PX = 10
 
 interface UseLongPressOptions {
   onLongPress: () => void
-  onClick?: () => void
+  onClick?: (e: React.MouseEvent) => void
   delayMs?: number
 }
 
@@ -49,7 +49,7 @@ export function useLongPress({ onLongPress, onClick, delayMs = DEFAULT_DELAY_MS 
       firedRef.current = false
       return
     }
-    onClick?.()
+    onClick?.(e)
   }, [onClick])
 
   const onContextMenu = useCallback((e: React.MouseEvent) => {

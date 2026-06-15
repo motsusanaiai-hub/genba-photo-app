@@ -12,25 +12,19 @@ export function usePhotos(projectId: string) {
     .filter((p) => p.project_id === projectId)
     .sort((a, b) => a.sort_order - b.sort_order)
 
-  const filtered = (phase: Phase | 'all' | 'unclassified'): Photo[] => {
-    if (phase === 'all') return projectPhotos
-    if (phase === 'unclassified') return projectPhotos.filter((p) => p.phase == null)
-    return projectPhotos.filter((p) => p.phase === phase)
-  }
-
   const maxSortOrder = projectPhotos.length
     ? Math.max(...projectPhotos.map((p) => p.sort_order))
     : 0
 
-  const uploadPhotos = async (
-    files: File[],
-    phase: Phase | null,
+  // ファイルごとに保存先フェーズを指定してアップロードする
+  const uploadPhotosWithPhases = async (
+    items: { file: File; phase: Phase | null }[],
     onProgress: (done: number, total: number) => void,
   ) => {
     const newPhotos: Photo[] = []
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]
+    for (let i = 0; i < items.length; i++) {
+      const { file, phase } = items[i]
       const id = crypto.randomUUID()
       const { dataUrl, width, height } = await generateThumbnail(file)
       await photoStorage.save(id, file)
@@ -59,12 +53,19 @@ export function usePhotos(projectId: string) {
         updated_at: now,
       })
 
-      onProgress(i + 1, files.length)
+      onProgress(i + 1, items.length)
     }
 
     addPhotos(newPhotos)
     return newPhotos
   }
+
+  // 全ファイルを単一フェーズでアップロードする（uploadPhotosWithPhases の単一フェーズ版）
+  const uploadPhotos = (
+    files: File[],
+    phase: Phase | null,
+    onProgress: (done: number, total: number) => void,
+  ) => uploadPhotosWithPhases(files.map((file) => ({ file, phase })), onProgress)
 
   // 呼び出し側が隣接判定を行い、2つの写真IDを渡す設計
   // → フィルター中の並び替えでも正しく動く
@@ -98,8 +99,8 @@ export function usePhotos(projectId: string) {
 
   return {
     photos: projectPhotos,
-    filtered,
     uploadPhotos,
+    uploadPhotosWithPhases,
     swapPhotoOrder,
     removePhoto,
     setPhase,

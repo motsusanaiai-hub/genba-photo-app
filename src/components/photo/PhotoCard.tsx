@@ -11,12 +11,24 @@ interface Props {
   onLongPress?: (photo: Photo) => void
   isSelected?: boolean
   onToggle?: (id: string) => void
+  onRangeSelect?: (id: string) => void
 }
 
-export function PhotoCard({ photo, index, onClick, onLongPress, isSelected = false, onToggle }: Props) {
+export function PhotoCard({ photo, index, onClick, onLongPress, isSelected = false, onToggle, onRangeSelect }: Props) {
   const longPress = useLongPress({
     onLongPress: () => onLongPress?.(photo),
-    onClick: () => onClick(photo),
+    // PC: Shift+クリックで範囲選択、Ctrl/Cmd+クリックで個別選択トグル（プレビューは開かない）
+    onClick: (e) => {
+      if (e.shiftKey && onRangeSelect) {
+        onRangeSelect(photo.id)
+        return
+      }
+      if ((e.ctrlKey || e.metaKey) && onToggle) {
+        onToggle(photo.id)
+        return
+      }
+      onClick(photo)
+    },
   })
 
   return (
@@ -69,9 +81,17 @@ export function PhotoCard({ photo, index, onClick, onLongPress, isSelected = fal
           選択中: プライマリ色で常時表示 */}
       {onToggle && (
         <button
-          onClick={(e) => { e.stopPropagation(); onToggle(photo.id) }}
+          onClick={(e) => {
+            e.stopPropagation()
+            // Shift+クリックは写真本体と同様に範囲選択。Ctrl/Cmd・修飾キーなしは個別トグル
+            if (e.shiftKey && onRangeSelect) {
+              onRangeSelect(photo.id)
+              return
+            }
+            onToggle(photo.id)
+          }}
           className={cn(
-            'absolute bottom-1.5 right-1.5 h-5 w-5 rounded-full border-2 border-white',
+            'absolute bottom-1 right-1 h-7 w-7 rounded-full border-2 border-white',
             'flex items-center justify-center transition-all',
             isSelected
               ? 'bg-primary opacity-100'
@@ -80,7 +100,7 @@ export function PhotoCard({ photo, index, onClick, onLongPress, isSelected = fal
           aria-label={isSelected ? '選択解除' : '選択'}
           aria-pressed={isSelected}
         >
-          {isSelected && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+          {isSelected && <Check className="h-4 w-4 text-white" strokeWidth={3} />}
         </button>
       )}
     </div>

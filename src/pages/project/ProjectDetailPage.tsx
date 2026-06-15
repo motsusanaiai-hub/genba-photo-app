@@ -9,13 +9,12 @@ import { useProjects } from '@/hooks/useProjects'
 import { usePhotos } from '@/hooks/usePhotos'
 import { usePhotoSelection } from '@/hooks/usePhotoSelection'
 import { Header } from '@/components/layout/Header'
-import { PhotoGrid } from '@/components/photo/PhotoGrid'
+import { PhotoGrid, type GridSize } from '@/components/photo/PhotoGrid'
 import { LedgerView } from '@/components/photo/LedgerView'
 import { BatchActionBar } from '@/components/photo/BatchActionBar'
 import { PhotoUploadModal } from '@/components/photo/PhotoUploadModal'
 import { OverlayCaptureModal } from '@/components/photo/OverlayCaptureModal'
 import { PhotoLightbox } from '@/components/photo/PhotoLightbox'
-import { PhaseBadge } from '@/components/photo/PhaseBadge'
 import { PhaseSaveToast } from '@/components/photo/PhaseSaveToast'
 import { PhotoActionSheet } from '@/components/photo/PhotoActionSheet'
 import { Button } from '@/components/ui/button'
@@ -23,34 +22,62 @@ import { cn } from '@/lib/utils'
 import { PHASE_CONFIG, type Phase } from '@/types/photo'
 import type { Photo } from '@/types/photo'
 
-type PhaseFilter = 'all' | Phase | 'unclassified'
 type ViewMode = 'grid' | 'ledger'
+type PhaseKey = Phase | 'unclassified'
 
-const TABS: { value: PhaseFilter; label: string }[] = [
-  { value: 'all',          label: '全て' },
-  { value: 'before',       label: PHASE_CONFIG.before.label },
-  { value: 'during',       label: PHASE_CONFIG.during.label },
-  { value: 'after',        label: PHASE_CONFIG.after.label },
-  { value: 'unclassified', label: '未分類' },
+const ALL_PHASE_KEYS: PhaseKey[] = ['before', 'during', 'after', 'unclassified']
+
+const PHASE_VISIBILITY_ITEMS: { key: PhaseKey; label: string; activeClass: string }[] = [
+  { key: 'before',       label: PHASE_CONFIG.before.label, activeClass: 'bg-blue-100 text-blue-700 border-blue-300' },
+  { key: 'during',       label: PHASE_CONFIG.during.label, activeClass: 'bg-amber-100 text-amber-700 border-amber-300' },
+  { key: 'after',        label: PHASE_CONFIG.after.label,  activeClass: 'bg-green-100 text-green-700 border-green-300' },
+  { key: 'unclassified', label: '未分類',                   activeClass: 'bg-gray-200 text-gray-700 border-gray-400' },
+]
+
+const GRID_SIZES: { value: GridSize; label: string }[] = [
+  { value: 'large',  label: '大' },
+  { value: 'medium', label: '中' },
+  { value: 'small',  label: '小' },
 ]
 
 const VIEW_MODE_KEY = 'genba-view-mode'
+const GRID_SIZE_KEY = 'genba-grid-size'
+const PHASE_VISIBILITY_KEY = 'genba-phase-visibility'
+
+function loadVisiblePhases(): Set<PhaseKey> {
+  try {
+    const raw = localStorage.getItem(PHASE_VISIBILITY_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown
+      if (Array.isArray(parsed)) {
+        const keys = parsed.filter((k): k is PhaseKey => ALL_PHASE_KEYS.includes(k as PhaseKey))
+        if (keys.length > 0) return new Set(keys)
+      }
+    }
+  } catch {
+    // 不正なデータは無視してデフォルトへ
+  }
+  return new Set(ALL_PHASE_KEYS)
+}
 
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const { getProject } = useProjects()
-  const { photos, filtered, removePhoto, setComment, setFloorLocation, setPhase, swapPhotoOrder, uploadPhotos } = usePhotos(projectId ?? '')
-  const { selected, toggle, clear } = usePhotoSelection()
+  const { photos, removePhoto, setComment, setFloorLocation, setPhase, swapPhotoOrder, uploadPhotos } = usePhotos(projectId ?? '')
+  const { selected, toggle, selectRange, clear } = usePhotoSelection()
 
   const beforePhotos = photos.filter((p) => p.phase === 'before')
   const hasBeforeAfter =
     beforePhotos.length > 0 &&
     photos.some((p) => p.phase === 'after')
 
-  const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>('all')
+  const [visiblePhases, setVisiblePhases] = useState<Set<PhaseKey>>(loadVisiblePhases)
   const [viewMode, setViewMode] = useState<ViewMode>(
     () => (localStorage.getItem(VIEW_MODE_KEY) as ViewMode | null) ?? 'grid',
+  )
+  const [gridSize, setGridSize] = useState<GridSize>(
+    () => (localStorage.getItem(GRID_SIZE_KEY) as GridSize | null) ?? 'large',
   )
   const [showUpload, setShowUpload] = useState(false)
   const [showOverlayCapture, setShowOverlayCapture] = useState(false)
@@ -67,12 +94,32 @@ export function ProjectDetailPage() {
     localStorage.setItem(VIEW_MODE_KEY, viewMode)
   }, [viewMode])
 
+  useEffect(() => {
+    localStorage.setItem(GRID_SIZE_KEY, gridSize)
+  }, [gridSize])
+
+  useEffect(() => {
+    localStorage.setItem(PHASE_VISIBILITY_KEY, JSON.stringify([...visiblePhases]))
+  }, [visiblePhases])
+
   if (!project) return <Navigate to="/" replace />
 
-  const displayPhotos = filtered(phaseFilter)
+  const displayPhotos = photos.filter((p) => visiblePhases.has(p.phase ?? 'unclassified'))
 
-  const handlePhaseFilterChange = (phase: PhaseFilter) => {
-    setPhaseFilter(phase)
+  // フェーズ表示フィルタの個別ON/OFF。最後の1つはOFFにできない（無視する）
+  const togglePhaseVisibility = (key: PhaseKey) => {
+    setVisiblePhases((prev) => {
+      if (prev.has(key) && prev.size === 1) return prev
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+    clear()
+  }
+
+  const handleShowAllPhases = () => {
+    setVisiblePhases(new Set(ALL_PHASE_KEYS))
     clear()
   }
 
@@ -81,16 +128,13 @@ export function ProjectDetailPage() {
     clear()
   }
 
-  // カメラ起動FABで撮影 → 現在表示中のタブのフェーズへ自動保存（全て/未分類タブは未分類）
+  // カメラ起動FABで撮影 → 表示フィルタには依存せず未分類で保存（トーストから変更可能）
   const handleCameraCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
     e.target.value = ''
     if (files.length === 0) return
 
-    const phase: Phase | null =
-      phaseFilter === 'before' || phaseFilter === 'during' || phaseFilter === 'after'
-        ? phaseFilter
-        : null
+    const phase: Phase | null = null
 
     setCapturing(true)
     try {
@@ -108,6 +152,11 @@ export function ProjectDetailPage() {
   // 写真の長押し → アクションシートを開く
   const handlePhotoLongPress = (photo: Photo) => {
     setActionSheetPhoto(photo)
+  }
+
+  // PC: Shift+クリックで直前の選択からの範囲選択（表示中の並び順に基づく）
+  const handleRangeSelect = (id: string) => {
+    selectRange(displayPhotos, id)
   }
 
   const handleOpenOverlayCapture = () => {
@@ -218,37 +267,52 @@ export function ProjectDetailPage() {
         }
       />
 
-      {/* フェーズフィルタータブ + ビュー切り替え */}
+      {/* フェーズ表示フィルタ + 表示サイズ切替 + ビュー切り替え */}
       <div className="border-b bg-background sticky top-14 z-30">
         <div className="flex items-center">
-          {/* フェーズタブ */}
-          <div className="flex overflow-x-auto flex-1">
-            {TABS.map(({ value, label }) => {
-              const count =
-                value === 'all'          ? photos.length :
-                value === 'unclassified' ? unclassifiedCount :
-                                           phaseCount(value as Phase)
+          {/* フェーズ表示フィルタ（複数選択トグル） */}
+          <div className="flex overflow-x-auto flex-1 gap-1.5 px-2 py-2">
+            {PHASE_VISIBILITY_ITEMS.map(({ key, label, activeClass }) => {
+              const count = key === 'unclassified' ? unclassifiedCount : phaseCount(key)
+              const active = visiblePhases.has(key)
               return (
                 <button
-                  key={value}
-                  onClick={() => handlePhaseFilterChange(value)}
+                  key={key}
+                  onClick={() => togglePhaseVisibility(key)}
+                  aria-pressed={active}
                   className={cn(
-                    'flex items-center gap-1.5 px-4 py-3 text-sm whitespace-nowrap border-b-2 transition-colors shrink-0',
-                    phaseFilter === value
-                      ? 'border-primary text-foreground font-medium'
-                      : 'border-transparent text-muted-foreground hover:text-foreground',
+                    'flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border transition-colors shrink-0 whitespace-nowrap',
+                    active ? activeClass : 'border-transparent text-muted-foreground opacity-50 hover:opacity-80',
                   )}
                 >
-                  {value === 'all' || value === 'unclassified' ? (
-                    <span>{label}</span>
-                  ) : (
-                    <PhaseBadge phase={value as Phase} size="sm" />
-                  )}
-                  <span className="text-xs text-muted-foreground">（{count}）</span>
+                  <span>{label}</span>
+                  <span className="text-xs">（{count}）</span>
                 </button>
               )
             })}
           </div>
+
+          {/* 表示サイズ切替（PC・グリッド表示のみ） */}
+          {viewMode === 'grid' && (
+            <div className="hidden lg:flex items-center gap-0.5 px-2 shrink-0 border-l">
+              {GRID_SIZES.map(({ value, label }) => (
+                <button
+                  key={value}
+                  onClick={() => setGridSize(value)}
+                  className={cn(
+                    'px-2 py-1.5 rounded text-xs font-medium transition-colors',
+                    gridSize === value
+                      ? 'text-foreground bg-muted'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                  aria-label={`表示サイズ: ${label}`}
+                  aria-pressed={gridSize === value}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* ビュー切り替えボタン */}
           <div className="flex items-center gap-0.5 px-2 shrink-0 border-l ml-1">
@@ -286,7 +350,7 @@ export function ProjectDetailPage() {
       {photos.length === 0 ? (
         <PhotoEmptyState onUpload={() => setShowUpload(true)} />
       ) : displayPhotos.length === 0 ? (
-        <FilterEmptyState phase={phaseFilter as Phase | 'unclassified'} onClear={() => handlePhaseFilterChange('all')} />
+        <FilterEmptyState onShowAll={handleShowAllPhases} />
       ) : viewMode === 'ledger' ? (
         <LedgerView
           photos={displayPhotos}
@@ -302,6 +366,8 @@ export function ProjectDetailPage() {
           onPhotoLongPress={handlePhotoLongPress}
           selectedIds={selected}
           onToggle={toggle}
+          onRangeSelect={handleRangeSelect}
+          gridSize={gridSize}
         />
       )}
 
@@ -358,11 +424,12 @@ export function ProjectDetailPage() {
         />
       )}
 
-      {/* アップロードモーダル */}
+      {/* アップロードモーダル: 表示フィルタとは独立して未分類を初期値とし、モーダル内で選択可能 */}
       <PhotoUploadModal
         open={showUpload}
         onClose={() => setShowUpload(false)}
         projectId={projectId ?? ''}
+        defaultPhase={null}
       />
 
       {/* 写真を重ねて撮影モーダル */}
@@ -429,19 +496,14 @@ function PhotoEmptyState({ onUpload }: { onUpload: () => void }) {
   )
 }
 
-function FilterEmptyState({ phase, onClear }: { phase: Phase | 'unclassified'; onClear: () => void }) {
+function FilterEmptyState({ onShowAll }: { onShowAll: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-[30vh] gap-3 text-center p-4">
       <p className="text-muted-foreground text-sm">
-        {phase === 'unclassified' ? (
-          '未分類'
-        ) : (
-          <PhaseBadge phase={phase} size="sm" />
-        )}
-        {' '}の写真はまだありません
+        表示中のフィルターに一致する写真はありません
       </p>
-      <Button variant="outline" size="sm" onClick={onClear}>
-        全て表示
+      <Button variant="outline" size="sm" onClick={onShowAll}>
+        すべて表示
       </Button>
     </div>
   )

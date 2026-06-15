@@ -1,4 +1,3 @@
-import { X } from 'lucide-react'
 import { PHASE_CONFIG, type Phase } from '@/types/photo'
 import { cn } from '@/lib/utils'
 
@@ -46,10 +45,9 @@ export function BatchActionBar({ count, onPhaseChange, onClear }: Props) {
 
         <button
           onClick={onClear}
-          className="p-1.5 rounded-full hover:bg-muted transition-colors shrink-0"
-          aria-label="選択解除"
+          className="shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted active:scale-95 transition-colors"
         >
-          <X className="h-4 w-4 text-muted-foreground" />
+          選択解除
         </button>
       </div>
     </div>
