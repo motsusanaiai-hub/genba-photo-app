@@ -96,6 +96,7 @@ export function usePhotos(projectId: string) {
 
   const removePhoto = async (photoId: string) => {
     const photo = photos.find((p) => p.id === photoId)
+
     await Promise.all([
       photoStorage.remove(photoId),
       photoStorage.removeCompressed(photoId),

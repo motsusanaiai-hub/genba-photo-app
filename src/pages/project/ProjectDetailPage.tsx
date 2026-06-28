@@ -17,6 +17,8 @@ import { OverlayCaptureModal } from '@/components/photo/OverlayCaptureModal'
 import { PhotoLightbox } from '@/components/photo/PhotoLightbox'
 import { PhaseSaveToast } from '@/components/photo/PhaseSaveToast'
 import { PhotoActionSheet } from '@/components/photo/PhotoActionSheet'
+import { DeviceSaveBanner } from '@/components/photo/DeviceSaveBanner'
+import { useDeviceSave } from '@/hooks/useDeviceSave'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { PHASE_CONFIG, type Phase } from '@/types/photo'
@@ -66,6 +68,7 @@ export function ProjectDetailPage() {
   const { getProject } = useProjects()
   const { photos, removePhoto, setComment, setFloorLocation, setPhase, swapPhotoOrder, uploadPhotos } = usePhotos(projectId ?? '')
   const { selected, toggle, selectRange, clear } = usePhotoSelection()
+  const deviceSave = useDeviceSave()
 
   const beforePhotos = photos.filter((p) => p.phase === 'before')
   const hasBeforeAfter =
@@ -140,6 +143,8 @@ export function ProjectDetailPage() {
     try {
       const uploaded = await uploadPhotos(files, phase, () => {})
       setCaptureToast({ photoIds: uploaded.map((p) => p.id), phase })
+      // 撮影後にスマホ保存バナーを表示（<input capture> で OS 保存済みの場合も含め任意で再保存可能）
+      deviceSave.queueFiles(files)
     } finally {
       setCapturing(false)
     }
@@ -190,7 +195,9 @@ export function ProjectDetailPage() {
 
   const handleActionSheetDelete = async () => {
     if (!actionSheetPhoto) return
+    console.time('[perf] removePhoto total')
     await removePhoto(actionSheetPhoto.id)
+    console.timeEnd('[perf] removePhoto total')
     setActionSheetPhoto(null)
   }
 
@@ -459,6 +466,20 @@ export function ProjectDetailPage() {
         count={selected.size}
         onPhaseChange={handleBatchPhaseChange}
         onClear={clear}
+      />
+
+      {/* スマホに保存バナー（カメラFABより上、BottomNavより上に配置） */}
+      <DeviceSaveBanner
+        saveMode={deviceSave.saveMode}
+        dirHandle={deviceSave.dirHandle}
+        pendingFiles={deviceSave.pendingFiles}
+        savePhase={deviceSave.savePhase}
+        onSaveToDir={deviceSave.handleSaveToDir}
+        onPickFolderAndSave={deviceSave.handlePickFolderAndSave}
+        onChangeFolder={deviceSave.handleChangeFolder}
+        onFallbackSave={deviceSave.handleFallbackSave}
+        onDismiss={deviceSave.dismiss}
+        positionClass="bottom-24"
       />
 
       {/* 写真長押しアクションシート */}

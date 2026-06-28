@@ -16,6 +16,15 @@ export const photoStorage = {
     }
   },
 
+  async getBlob(id: string): Promise<Blob | null> {
+    try {
+      const blob = await get<Blob>(key(id))
+      return blob ?? null
+    } catch {
+      return null
+    }
+  },
+
   async getObjectURL(id: string): Promise<string | null> {
     try {
       const blob = await get<Blob>(key(id))
