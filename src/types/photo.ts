@@ -14,6 +14,34 @@ export const PHASE_OPTIONS: { value: Phase | null; label: string }[] = [
   { value: 'after',  label: PHASE_CONFIG.after.label },
 ]
 
+/** 未分類を含むフェーズキー（表示フィルタ・比較モードのタブ切替などで共通使用） */
+export type PhaseKey = Phase | 'unclassified'
+
+export const ALL_PHASE_KEYS: PhaseKey[] = ['before', 'during', 'after', 'unclassified']
+
+export const PHASE_KEY_LABEL: Record<PhaseKey, string> = {
+  before: PHASE_CONFIG.before.label,
+  during: PHASE_CONFIG.during.label,
+  after: PHASE_CONFIG.after.label,
+  unclassified: '未分類',
+}
+
+export function phaseKeyOf(photo: Pick<Photo, 'phase'>): PhaseKey {
+  return photo.phase ?? 'unclassified'
+}
+
+export function filterByPhaseKey(photos: Photo[], key: PhaseKey): Photo[] {
+  return photos.filter((p) => phaseKeyOf(p) === key)
+}
+
+/** フェーズタブの選択中スタイル（フェーズ表示フィルタ・比較モードのタブなどで共通使用） */
+export const PHASE_KEY_ACTIVE_CLASS: Record<PhaseKey, string> = {
+  before: 'bg-blue-100 text-blue-700 border-blue-300',
+  during: 'bg-amber-100 text-amber-700 border-amber-300',
+  after: 'bg-green-100 text-green-700 border-green-300',
+  unclassified: 'bg-gray-200 text-gray-700 border-gray-400',
+}
+
 export interface Photo {
   id: string
   project_id: string

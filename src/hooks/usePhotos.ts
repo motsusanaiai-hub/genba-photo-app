@@ -80,18 +80,23 @@ export function usePhotos(projectId: string) {
     onProgress: (done: number, total: number) => void,
   ) => uploadPhotosWithPhases(files.map((file) => ({ file, phase })), onProgress)
 
-  // 呼び出し側が隣接判定を行い、2つの写真IDを渡す設計
-  // → フィルター中の並び替えでも正しく動く
-  const swapPhotoOrder = async (idA: string, idB: string) => {
-    const a = projectPhotos.find((p) => p.id === idA)
-    const b = projectPhotos.find((p) => p.id === idB)
-    if (!a || !b) return
-    updatePhoto(a.id, { sort_order: b.sort_order })
-    updatePhoto(b.id, { sort_order: a.sort_order })
-    await Promise.all([
-      updateCloudPhoto(a.id, { sort_order: b.sort_order }),
-      updateCloudPhoto(b.id, { sort_order: a.sort_order }),
-    ])
+  // orderedIds＝並び替え対象（表示中の一覧など、任意の部分集合）の新しい並び順。
+  // 対象写真が現在持っている sort_order 値の集合を「枠」として温存し、その枠内だけを
+  // 並び替える（対象外の写真・全体の並び順への影響を最小限にするため）。
+  // ▲▼ボタン・ドラッグ＆ドロップ・並び替えメニューは全てこの1関数を経由する。
+  const reorderPhotos = async (orderedIds: string[]) => {
+    const byId = new Map(projectPhotos.map((p) => [p.id, p]))
+    const validIds = orderedIds.filter((id) => byId.has(id))
+    if (validIds.length < 2) return
+
+    const slots = validIds.map((id) => byId.get(id)!.sort_order).sort((a, b) => a - b)
+
+    const changes = validIds
+      .map((id, i) => ({ id, sort_order: slots[i] }))
+      .filter(({ id, sort_order }) => byId.get(id)!.sort_order !== sort_order)
+
+    changes.forEach(({ id, sort_order }) => updatePhoto(id, { sort_order }))
+    await Promise.all(changes.map(({ id, sort_order }) => updateCloudPhoto(id, { sort_order })))
   }
 
   const removePhoto = async (photoId: string) => {
@@ -127,7 +132,7 @@ export function usePhotos(projectId: string) {
     photos: projectPhotos,
     uploadPhotos,
     uploadPhotosWithPhases,
-    swapPhotoOrder,
+    reorderPhotos,
     removePhoto,
     setPhase,
     setComment,

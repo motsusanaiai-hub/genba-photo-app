@@ -1,5 +1,7 @@
 import { useRef, useState, useEffect, useLayoutEffect } from 'react'
-import { ChevronUp, ChevronDown } from 'lucide-react'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { ChevronUp, ChevronDown, GripVertical } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PhaseBadge } from './PhaseBadge'
 import { TemplateDropdown } from './TemplateDropdown'
@@ -12,9 +14,10 @@ interface Props {
   onPhotoClick: (photo: Photo) => void
   onCommentChange: (photoId: string, comment: string) => void
   onFloorLocationChange: (photoId: string, data: { floor: string; location: string }) => void
-  prevComment?: string    // 「上の写真と同じ」用
-  onMoveUp?: () => void   // undefined = ボタン非表示（先頭行）
-  onMoveDown?: () => void // undefined = ボタン非表示（末尾行）
+  prevComment?: string     // 「上の写真と同じ」用
+  onMoveUp?: () => void    // undefined = ボタン非表示（先頭行）
+  onMoveDown?: () => void  // undefined = ボタン非表示（末尾行）
+  dragHandle?: boolean     // true = ドラッグハンドルを表示（並び替え無効な一覧では非表示）
 }
 
 export function LedgerRow({
@@ -26,7 +29,31 @@ export function LedgerRow({
   prevComment,
   onMoveUp,
   onMoveDown,
+  dragHandle,
 }: Props) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: photo.id,
+  })
+  const sortableStyle = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
+  // サムネイルはドラッグハンドルも兼ねるため、実際にドラッグが発生した場合は
+  // ドラッグ終了直後に飛んでくるクリックを1回だけ無視してライトボックスが誤って開かないようにする
+  const draggedRef = useRef(false)
+  useEffect(() => {
+    if (isDragging) draggedRef.current = true
+  }, [isDragging])
+
+  const handleThumbnailClick = () => {
+    if (draggedRef.current) {
+      draggedRef.current = false
+      return
+    }
+    onPhotoClick(photo)
+  }
+
   const [local, setLocal] = useState(photo.comment)
   const [localFloor, setLocalFloor] = useState(photo.floor ?? '')
   const [localLocation, setLocalLocation] = useState(photo.location ?? '')
@@ -82,9 +109,27 @@ export function LedgerRow({
   const isEmpty = !local.trim()
 
   return (
-    <div className="flex border-b last:border-b-0">
-      {/* 番号列（▲▼ + 連番） */}
+    <div
+      ref={setNodeRef}
+      style={sortableStyle}
+      className={cn(
+        'flex border-b last:border-b-0 bg-background',
+        isDragging && 'relative z-10 opacity-60',
+      )}
+    >
+      {/* 番号列（ドラッグハンドル + ▲▼ + 連番） */}
       <div className="w-12 shrink-0 flex flex-col items-center pt-1.5 gap-0.5">
+        {dragHandle && (
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-grab active:cursor-grabbing touch-none"
+            aria-label="ドラッグして並び替え"
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
+        )}
         {onMoveUp ? (
           <button
             type="button"
@@ -122,9 +167,14 @@ export function LedgerRow({
         <div className="flex items-start gap-2.5">
           <button
             type="button"
-            onClick={() => onPhotoClick(photo)}
-            className="shrink-0 w-16 h-16 lg:w-20 lg:h-20 rounded-md overflow-hidden focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
-            aria-label={`写真 ${index + 1} を開く`}
+            onClick={handleThumbnailClick}
+            {...(dragHandle ? attributes : undefined)}
+            {...(dragHandle ? listeners : undefined)}
+            className={cn(
+              'shrink-0 w-16 h-16 lg:w-20 lg:h-20 rounded-md overflow-hidden focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1',
+              dragHandle && 'touch-none cursor-grab active:cursor-grabbing',
+            )}
+            aria-label={`写真 ${index + 1} を開く（ドラッグして並び替えも可能）`}
           >
             <img
               src={resolvePhotoThumbUrl(photo)}
@@ -149,7 +199,7 @@ export function LedgerRow({
 
         {/* 中段: 階数・場所入力 */}
         <div className="flex items-center gap-2">
-          <div className="flex-1 flex items-center gap-1.5">
+          <div className="flex-1 min-w-0 flex items-center gap-1.5">
             <label
               htmlFor={`floor-${photo.id}`}
               className="text-xs text-muted-foreground shrink-0 cursor-pointer"
@@ -165,7 +215,7 @@ export function LedgerRow({
               className="flex-1 text-sm rounded-md border bg-background border-input px-2 py-1 min-w-0 focus:outline-none focus:ring-1 focus:ring-ring transition-colors placeholder:text-muted-foreground"
             />
           </div>
-          <div className="flex-1 flex items-center gap-1.5">
+          <div className="flex-1 min-w-0 flex items-center gap-1.5">
             <label
               htmlFor={`location-${photo.id}`}
               className="text-xs text-muted-foreground shrink-0 cursor-pointer"

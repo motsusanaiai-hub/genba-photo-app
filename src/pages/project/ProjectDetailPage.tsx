@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, Navigate } from 'react-router-dom'
-import { ChevronLeft, Camera, ImagePlus, Layers, Pencil, Plus, LayoutGrid, List } from 'lucide-react'
+import { ChevronLeft, Camera, ImagePlus, Layers, Pencil, Plus, LayoutGrid, List, Columns2 } from 'lucide-react'
 import { ExportButton } from '@/components/project/ExportButton'
 import { BeforeAfterExportButton } from '@/components/project/BeforeAfterExportButton'
 import { LargePhotoExportButton } from '@/components/project/LargePhotoExportButton'
@@ -11,6 +11,7 @@ import { usePhotoSelection } from '@/hooks/usePhotoSelection'
 import { Header } from '@/components/layout/Header'
 import { PhotoGrid, type GridSize } from '@/components/photo/PhotoGrid'
 import { LedgerView } from '@/components/photo/LedgerView'
+import { CompareView } from '@/components/photo/CompareView'
 import { BatchActionBar } from '@/components/photo/BatchActionBar'
 import { PhotoUploadModal } from '@/components/photo/PhotoUploadModal'
 import { OverlayCaptureModal } from '@/components/photo/OverlayCaptureModal'
@@ -21,20 +22,16 @@ import { DeviceSaveBanner } from '@/components/photo/DeviceSaveBanner'
 import { useDeviceSave } from '@/hooks/useDeviceSave'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { PHASE_CONFIG, type Phase } from '@/types/photo'
+import { ALL_PHASE_KEYS, PHASE_KEY_ACTIVE_CLASS, PHASE_KEY_LABEL, type Phase, type PhaseKey } from '@/types/photo'
 import type { Photo } from '@/types/photo'
 
-type ViewMode = 'grid' | 'ledger'
-type PhaseKey = Phase | 'unclassified'
+type ViewMode = 'grid' | 'ledger' | 'compare'
 
-const ALL_PHASE_KEYS: PhaseKey[] = ['before', 'during', 'after', 'unclassified']
-
-const PHASE_VISIBILITY_ITEMS: { key: PhaseKey; label: string; activeClass: string }[] = [
-  { key: 'before',       label: PHASE_CONFIG.before.label, activeClass: 'bg-blue-100 text-blue-700 border-blue-300' },
-  { key: 'during',       label: PHASE_CONFIG.during.label, activeClass: 'bg-amber-100 text-amber-700 border-amber-300' },
-  { key: 'after',        label: PHASE_CONFIG.after.label,  activeClass: 'bg-green-100 text-green-700 border-green-300' },
-  { key: 'unclassified', label: '未分類',                   activeClass: 'bg-gray-200 text-gray-700 border-gray-400' },
-]
+const PHASE_VISIBILITY_ITEMS: { key: PhaseKey; label: string; activeClass: string }[] = ALL_PHASE_KEYS.map((key) => ({
+  key,
+  label: PHASE_KEY_LABEL[key],
+  activeClass: PHASE_KEY_ACTIVE_CLASS[key],
+}))
 
 const GRID_SIZES: { value: GridSize; label: string }[] = [
   { value: 'large',  label: '大' },
@@ -66,7 +63,7 @@ export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const { getProject } = useProjects()
-  const { photos, removePhoto, setComment, setFloorLocation, setPhase, swapPhotoOrder, uploadPhotos } = usePhotos(projectId ?? '')
+  const { photos, removePhoto, setComment, setFloorLocation, setPhase, reorderPhotos, uploadPhotos } = usePhotos(projectId ?? '')
   const { selected, toggle, selectRange, clear } = usePhotoSelection()
   const deviceSave = useDeviceSave()
 
@@ -201,15 +198,6 @@ export function ProjectDetailPage() {
     setActionSheetPhoto(null)
   }
 
-  // displayPhotos ベースで隣接判定 → フィルター中も正しく並び替えられる
-  const handleMovePhoto = (photoId: string, direction: 'up' | 'down') => {
-    const idx = displayPhotos.findIndex((p) => p.id === photoId)
-    if (direction === 'up' && idx <= 0) return
-    if (direction === 'down' && idx >= displayPhotos.length - 1) return
-    const swapIdx = direction === 'up' ? idx - 1 : idx + 1
-    swapPhotoOrder(displayPhotos[idx].id, displayPhotos[swapIdx].id)
-  }
-
   const phaseCount = (phase: Phase) => photos.filter((p) => p.phase === phase).length
   const unclassifiedCount = photos.filter((p) => p.phase == null).length
 
@@ -277,27 +265,31 @@ export function ProjectDetailPage() {
       {/* フェーズ表示フィルタ + 表示サイズ切替 + ビュー切り替え */}
       <div className="border-b bg-background sticky top-14 z-30">
         <div className="flex items-center">
-          {/* フェーズ表示フィルタ（複数選択トグル） */}
-          <div className="flex overflow-x-auto flex-1 gap-1.5 px-2 py-2">
-            {PHASE_VISIBILITY_ITEMS.map(({ key, label, activeClass }) => {
-              const count = key === 'unclassified' ? unclassifiedCount : phaseCount(key)
-              const active = visiblePhases.has(key)
-              return (
-                <button
-                  key={key}
-                  onClick={() => togglePhaseVisibility(key)}
-                  aria-pressed={active}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border transition-colors shrink-0 whitespace-nowrap',
-                    active ? activeClass : 'border-transparent text-muted-foreground opacity-50 hover:opacity-80',
-                  )}
-                >
-                  <span>{label}</span>
-                  <span className="text-xs">（{count}）</span>
-                </button>
-              )
-            })}
-          </div>
+          {/* フェーズ表示フィルタ（複数選択トグル、比較モードでは各ペインのタブに置き換わるため非表示） */}
+          {viewMode === 'compare' ? (
+            <div className="flex-1" />
+          ) : (
+            <div className="flex overflow-x-auto flex-1 gap-1.5 px-2 py-2">
+              {PHASE_VISIBILITY_ITEMS.map(({ key, label, activeClass }) => {
+                const count = key === 'unclassified' ? unclassifiedCount : phaseCount(key)
+                const active = visiblePhases.has(key)
+                return (
+                  <button
+                    key={key}
+                    onClick={() => togglePhaseVisibility(key)}
+                    aria-pressed={active}
+                    className={cn(
+                      'flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border transition-colors shrink-0 whitespace-nowrap',
+                      active ? activeClass : 'border-transparent text-muted-foreground opacity-50 hover:opacity-80',
+                    )}
+                  >
+                    <span>{label}</span>
+                    <span className="text-xs">（{count}）</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
 
           {/* 表示サイズ切替（PC・グリッド表示のみ） */}
           {viewMode === 'grid' && (
@@ -349,6 +341,19 @@ export function ProjectDetailPage() {
             >
               <List className="h-4 w-4" />
             </button>
+            <button
+              onClick={() => setViewMode('compare')}
+              className={cn(
+                'p-1.5 rounded transition-colors',
+                viewMode === 'compare'
+                  ? 'text-foreground bg-muted'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+              aria-label="比較・並び替え表示"
+              aria-pressed={viewMode === 'compare'}
+            >
+              <Columns2 className="h-4 w-4" />
+            </button>
           </div>
         </div>
       </div>
@@ -356,6 +361,14 @@ export function ProjectDetailPage() {
       {/* コンテンツ */}
       {photos.length === 0 ? (
         <PhotoEmptyState onUpload={() => setShowUpload(true)} />
+      ) : viewMode === 'compare' ? (
+        <CompareView
+          photos={photos}
+          onCommentChange={setComment}
+          onFloorLocationChange={setFloorLocation}
+          onReorder={reorderPhotos}
+          onDeletePhoto={removePhoto}
+        />
       ) : displayPhotos.length === 0 ? (
         <FilterEmptyState onShowAll={handleShowAllPhases} />
       ) : viewMode === 'ledger' ? (
@@ -364,7 +377,7 @@ export function ProjectDetailPage() {
           onPhotoClick={setLightboxPhoto}
           onCommentChange={setComment}
           onFloorLocationChange={setFloorLocation}
-          onMovePhoto={handleMovePhoto}
+          onReorder={reorderPhotos}
         />
       ) : (
         <PhotoGrid
