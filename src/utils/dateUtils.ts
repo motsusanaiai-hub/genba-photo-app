@@ -12,8 +12,9 @@ export function formatRelativeDate(isoString: string): string {
 
 export function formatDate(dateString: string | null): string {
   if (!dateString) return ''
-  // YYYY-MM-DD → ローカルタイム補正のため T00:00:00 を付与
-  const date = new Date(`${dateString}T00:00:00`)
+  // 日付のみ（YYYY-MM-DD）は UTC 扱いになるのを防ぐため T00:00:00 を付与してローカル日時として解釈させる。
+  // タイムスタンプ付き（例: taken_at の ISO 文字列）はそのまま Date に渡し、ローカルタイムゾーンで日付を算出する。
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(dateString) ? new Date(`${dateString}T00:00:00`) : new Date(dateString)
   return date.toLocaleDateString('ja-JP', {
     year: 'numeric',
     month: 'numeric',

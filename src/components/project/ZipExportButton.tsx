@@ -22,16 +22,35 @@ const MODES: { mode: ZipExportMode; label: string; sub: string }[] = [
 export function ZipExportButton({ project, photos }: Props) {
   const [status, setStatus] = useState<Status>('idle')
   const [open, setOpen] = useState(false)
+  const [warning, setWarning] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
+
+  const NOT_ON_THIS_DEVICE = '元画像はこの端末に保存されていません。撮影した端末で出力してください。'
 
   const handleExport = async (mode: ZipExportMode) => {
     setOpen(false)
     if (status === 'loading') return
     setStatus('loading')
+    setWarning(null)
     try {
       const { generateZip } = await import('@/lib/generateZip')
-      await generateZip(project, photos, mode)
+      const { created, missingOriginals, missingCompressed } = await generateZip(project, photos, mode)
       setStatus('idle')
+
+      // 「元画像のみ」で1枚も見つからずZIP自体が作られなかった場合
+      if (!created) {
+        setWarning(NOT_ON_THIS_DEVICE)
+        setTimeout(() => setWarning(null), 8000)
+        return
+      }
+
+      if (missingOriginals > 0 || missingCompressed > 0) {
+        const parts: string[] = []
+        if (missingOriginals > 0) parts.push(`元画像${missingOriginals}枚をスキップしました（撮影した端末でのみ保存されています）`)
+        if (missingCompressed > 0) parts.push(`圧縮画像${missingCompressed}枚を含められませんでした`)
+        setWarning(parts.join(' / '))
+        setTimeout(() => setWarning(null), 8000)
+      }
     } catch (err) {
       console.error('[ZIP出力] failed:', err)
       setStatus('error')
@@ -64,6 +83,12 @@ export function ZipExportButton({ project, photos }: Props) {
         <span className="hidden sm:inline">{label}</span>
         <ChevronDown className={cn('h-3 w-3 transition-transform hidden sm:block', open && 'rotate-180')} />
       </Button>
+
+      {warning && (
+        <div className="absolute right-0 top-full mt-1 z-[71] bg-amber-50 border border-amber-300 text-amber-900 text-xs rounded-lg shadow-lg px-3 py-2 w-72 leading-snug">
+          {warning}
+        </div>
+      )}
 
       {open && (
         <>

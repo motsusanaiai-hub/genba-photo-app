@@ -144,7 +144,7 @@ export function PhotoLightbox({ photo, photos, onClose, onChange, onDelete }: Pr
           <span className="text-white/70 text-xs">{photo.original_filename}</span>
         </div>
         {photo.taken_at && (
-          <p className="text-white/50 text-xs">{formatDate(photo.taken_at.slice(0, 10))}</p>
+          <p className="text-white/50 text-xs">{formatDate(photo.taken_at)}</p>
         )}
         {photo.comment && (
           <p className="text-white/80 text-sm leading-snug">{photo.comment}</p>

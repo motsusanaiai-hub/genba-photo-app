@@ -8,11 +8,13 @@ const compressedKey  = (id: string) => `photo:${id}:c:600`
  * Supabase 移行時はこのファイルを Storage API の呼び出しに差し替える。
  */
 export const photoStorage = {
-  async save(id: string, file: File): Promise<void> {
+  async save(id: string, file: File): Promise<boolean> {
     try {
       await set(key(id), file)
+      return true
     } catch (e) {
-      console.warn('photoStorage.save failed:', e)
+      console.error('photoStorage.save failed (original image not persisted):', id, file.name, e)
+      return false
     }
   },
 
