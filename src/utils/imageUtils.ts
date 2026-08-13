@@ -2,6 +2,8 @@ export interface ThumbnailResult {
   dataUrl: string
   width: number | null
   height: number | null
+  /** true の場合、ブラウザが形式を読めずプレースホルダーにフォールバックした（HEIC等） */
+  failed: boolean
 }
 
 /** Canvas で最大 maxWidth px のサムネイルを生成して data URL を返す */
@@ -23,11 +25,30 @@ export async function generateThumbnail(
       dataUrl: canvas.toDataURL('image/webp', 0.75),
       width: img.naturalWidth,
       height: img.naturalHeight,
+      failed: false,
     }
   } catch {
     // HEIC など未対応フォーマットのフォールバック
-    return { dataUrl: makePlaceholderDataUrl(file.name), width: null, height: null }
+    return { dataUrl: makePlaceholderDataUrl(file.name), width: null, height: null, failed: true }
   }
+}
+
+/**
+ * EXIFのDateTimeOriginal（撮影日時）を取得する。
+ * 取得できない・解析失敗（HEIC等の非対応形式を含む）の場合は file.lastModified にフォールバックする。
+ */
+export async function resolveTakenAt(file: File): Promise<string> {
+  try {
+    const { parse } = await import('exifr')
+    const exif = await parse(file, { pick: ['DateTimeOriginal'] })
+    const date = exif?.DateTimeOriginal
+    if (date instanceof Date && !isNaN(date.getTime())) {
+      return date.toISOString()
+    }
+  } catch {
+    // EXIF未対応・破損時は下のフォールバックへ
+  }
+  return new Date(file.lastModified).toISOString()
 }
 
 /**

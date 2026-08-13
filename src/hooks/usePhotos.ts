@@ -1,7 +1,7 @@
 import { useAuthStore } from '@/store/authStore'
 import { usePhotoStore } from '@/store/photoStore'
 import { photoStorage } from '@/lib/photoStorage'
-import { generateThumbnail, generateCompressedImage } from '@/utils/imageUtils'
+import { generateThumbnail, generateCompressedImage, resolveTakenAt } from '@/utils/imageUtils'
 import {
   insertCloudPhotos,
   updateCloudPhoto,
@@ -33,7 +33,8 @@ export function usePhotos(projectId: string) {
     for (let i = 0; i < items.length; i++) {
       const { file, phase } = items[i]
       const id = crypto.randomUUID()
-      const { dataUrl, width, height } = await generateThumbnail(file)
+      const { dataUrl, width, height, failed } = await generateThumbnail(file)
+      const takenAt = await resolveTakenAt(file)
       await photoStorage.save(id, file)
 
       // Excel 出力用 600px 圧縮版を生成して保存
@@ -53,7 +54,7 @@ export function usePhotos(projectId: string) {
         file_size: file.size,
         width,
         height,
-        taken_at: new Date(file.lastModified).toISOString(),
+        taken_at: takenAt,
         comment: '',
         floor: '',
         location: '',
@@ -63,6 +64,7 @@ export function usePhotos(projectId: string) {
         storage_path: storagePath,
         created_at: now,
         updated_at: now,
+        format_warning: failed,
       })
 
       onProgress(i + 1, items.length)

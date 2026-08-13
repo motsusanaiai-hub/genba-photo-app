@@ -60,4 +60,5 @@ export interface Photo {
   storage_path: string | null   // Supabase Storage上の600px圧縮写真パス（${user_id}/${id}.jpg）
   created_at: string
   updated_at: string
+  format_warning?: boolean      // 取り込み時にサムネイル/圧縮生成に失敗した（クライアントのみ・DB非保存）
 }
