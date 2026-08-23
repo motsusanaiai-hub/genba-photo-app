@@ -628,7 +628,7 @@ recent_comments         最近使ったコメント履歴 ← MVP追加
 |---|---|---|---|
 | id | uuid | PK, FK→auth.users | |
 | display_name | text | NOT NULL | |
-| plan | text | DEFAULT 'free' | 'free' \| 'paid' |
+| plan | text | DEFAULT 'free' | 'free' \| 'ads_removed' \| 'pro' |
 | created_at | timestamptz | DEFAULT now() | |
 | updated_at | timestamptz | DEFAULT now() | |
 
