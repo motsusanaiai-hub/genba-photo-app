@@ -64,10 +64,82 @@ export async function updateCloudProject(id: string, data: Partial<Project>): Pr
   if (error) console.error('[cloudSync] updateCloudProject failed:', error)
 }
 
-export async function deleteCloudProject(id: string): Promise<void> {
-  if (!isSupabaseConfigured || !supabase) return
-  const { error } = await supabase.from('projects').delete().eq('id', id)
-  if (error) console.error('[cloudSync] deleteCloudProject failed:', error)
+export interface DeleteProjectCascadeResult {
+  /** 対象プロジェクトの写真に紐づくStorage画像を全て削除できたか（対象0件の場合も true） */
+  storageDeleted: boolean
+  /** 削除に失敗したStorageパス（空なら全件成功、または対象なし） */
+  storageFailedPaths: string[]
+  /** photosレコードの削除に成功したか */
+  photosDeleted: boolean
+  /** projectsレコードの削除に成功したか */
+  projectDeleted: boolean
+}
+
+/**
+ * 現場削除時、Supabase側（projects / photos / Storage画像）をまとめて削除する。
+ * 対象は project_id で厳密に絞り込むため、他の現場のデータには影響しない。
+ * ※ 端末内のIndexedDB / localStorage（写真本体・メタデータ）はここでは一切削除しない
+ *   （現場削除後も端末内に写真データが残る仕様のため、呼び出し側でも触らないこと）。
+ *
+ * 途中で失敗しても後続の削除は止めず（例: Storage削除が一部失敗しても projects/photos の
+ * 削除は続行する）、どの段階が失敗したかを戻り値で報告する。呼び出し側はこれを見て
+ * ログ・再試行導線を検討できる。
+ */
+export async function deleteCloudProjectCascade(projectId: string): Promise<DeleteProjectCascadeResult> {
+  const result: DeleteProjectCascadeResult = {
+    storageDeleted: true,
+    storageFailedPaths: [],
+    photosDeleted: false,
+    projectDeleted: false,
+  }
+  if (!isSupabaseConfigured || !supabase) return result
+
+  // 1. 対象現場の写真一覧（storage_path含む）を project_id で限定して取得。
+  //    他の現場のstorage_pathを誤って混入させないよう、ここで得たパスのみを削除対象にする。
+  const { data: photoRows, error: fetchError } = await supabase
+    .from('photos')
+    .select('storage_path')
+    .eq('project_id', projectId)
+
+  if (fetchError) {
+    console.error('[cloudSync] deleteCloudProjectCascade: fetch photos failed:', projectId, fetchError)
+  }
+
+  const storagePaths = (photoRows ?? [])
+    .map((p) => p.storage_path as string | null)
+    .filter((p): p is string => !!p)
+
+  // 2. Storage上の圧縮画像を削除（100件ずつバッチ）
+  if (storagePaths.length > 0) {
+    const CHUNK_SIZE = 100
+    for (let i = 0; i < storagePaths.length; i += CHUNK_SIZE) {
+      const chunk = storagePaths.slice(i, i + CHUNK_SIZE)
+      const { error } = await supabase.storage.from(COMPRESSED_BUCKET).remove(chunk)
+      if (error) {
+        result.storageDeleted = false
+        result.storageFailedPaths.push(...chunk)
+        console.error('[cloudSync] deleteCloudProjectCascade: storage remove failed:', projectId, chunk, error)
+      }
+    }
+  }
+
+  // 3. photosレコード削除（project_idで限定。projectsのON DELETE CASCADEに任せず明示的に実行）
+  const { error: photosError } = await supabase.from('photos').delete().eq('project_id', projectId)
+  if (photosError) {
+    console.error('[cloudSync] deleteCloudProjectCascade: delete photos failed:', projectId, photosError)
+  } else {
+    result.photosDeleted = true
+  }
+
+  // 4. projectsレコード削除
+  const { error: projectError } = await supabase.from('projects').delete().eq('id', projectId)
+  if (projectError) {
+    console.error('[cloudSync] deleteCloudProjectCascade: delete project failed:', projectId, projectError)
+  } else {
+    result.projectDeleted = true
+  }
+
+  return result
 }
 
 // ─── photos ─────────────────────────────────────────────────

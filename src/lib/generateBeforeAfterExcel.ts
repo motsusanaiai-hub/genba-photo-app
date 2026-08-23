@@ -14,7 +14,7 @@ import {
   rowHeightToPx,
 } from '@/lib/generateExcel'
 
-// ─── レイアウト定数（標準台帳と同値） ────────────────────────
+// ─── レイアウト定数（H_NO/H_PHASE/H_COMMENTは標準台帳と同値） ──
 const ROWS_PER_PAIR = 5
 const COL_W         = 28
 const H_NO          = 18
@@ -22,6 +22,22 @@ const H_IMAGE       = 130
 const H_PHASE       = 18
 const H_DATE        = 18
 const H_COMMENT     = 45
+
+// ─── ページ分割 ──────────────────────────────────────────────
+//
+// 標準台帳（generateExcel.ts）はCOL_W=54（2列で756px）とすることで
+// fitToWidth の拡大率を約1.0に保っているが、本レイアウトはCOL_W=28（2列で392px）と
+// 印刷幅（0.20in余白時 約756px）よりかなり狭い。fitToWidth に任せると実際の拡大率が
+// 不定になり、手動で入れた改ページと自動改ページが競合して「ペアの途中でページが
+// 分割される」おそれがある。そのため本レイアウトは fitToWidth を使わず scale:100
+// （等倍固定）とし、改ページ位置をpt単位の実測値から確定できるようにしている。
+//
+// 余白: left/right 0.20" / top/bottom 0.25"（標準台帳と同じ値）
+//   → 印刷高 = 11.69-0.50 = 11.19in = 806pt (72pt/inch)
+// 1組の高さ = H_NO(18) + H_IMAGE(130) + H_PHASE(18) + H_DATE(18) + H_COMMENT(45) = 229pt
+// PAIRS_PER_PAGE=3: 3組 × 229pt = 687pt ≤ 806pt（約15%の余裕を確保。1ページ目は
+// 列ヘッダー行(22pt)を差し引いても 806-22=784pt ≥ 687pt のため同じ組数で収まる）
+const PAIRS_PER_PAGE = 3
 
 // ─── ペアリング ────────────────────────────────────────────────
 
@@ -85,9 +101,14 @@ async function buildBeforeAfterSheet(wb: Workbook, pairs: Pair[]): Promise<void>
 
   ws.pageSetup.paperSize   = 9
   ws.pageSetup.orientation = 'portrait'
-  ws.pageSetup.fitToPage   = true
-  ws.pageSetup.fitToWidth  = 1
-  ws.pageSetup.fitToHeight = 0
+  ws.pageSetup.fitToPage   = false
+  ws.pageSetup.scale       = 100
+  // 余白（単位: inch）— 標準台帳（generateExcel.ts）と同じ値
+  ws.pageSetup.margins = {
+    left: 0.20, right: 0.20,
+    top:  0.25, bottom: 0.25,
+    header: 0.1, footer: 0.1,
+  }
 
   if (pairs.length === 0) {
     const c = ws.getCell('A1')
@@ -99,8 +120,14 @@ async function buildBeforeAfterSheet(wb: Workbook, pairs: Pair[]): Promise<void>
   // 列ヘッダー行（施工前 / 施工後）
   buildColumnHeaders(ws)
 
-  for (let i = 0; i < pairs.length; i++) {
-    const { before, after } = pairs[i]
+  // 最後のページも常に PAIRS_PER_PAGE 組固定になるよう倍数に補完（はみ出し分は空枠）
+  const totalPairs = Math.ceil(pairs.length / PAIRS_PER_PAGE) * PAIRS_PER_PAGE
+
+  for (let i = 0; i < totalPairs; i++) {
+    // pairs配列の範囲外は undefined（空枠として扱う）
+    const pair   = pairs[i] as Pair | undefined
+    const before = pair?.before
+    const after  = pair?.after
     const rNo = i * ROWS_PER_PAIR + 2  // 1行目がヘッダーのため +2
 
     ws.getRow(rNo + 0).height = H_NO
@@ -138,6 +165,11 @@ async function buildBeforeAfterSheet(wb: Workbook, pairs: Pair[]): Promise<void>
     }
     if (before) await embedImage(wb, ws, before, { col0: 0, ...frameBase })
     if (after)  await embedImage(wb, ws, after,  { col0: 1, ...frameBase })
+
+    // PAIRS_PER_PAGE組ごとに改ページ。最後のページは除く。
+    if ((i + 1) % PAIRS_PER_PAGE === 0 && i < totalPairs - 1) {
+      ws.getRow(rNo + ROWS_PER_PAIR - 1).addPageBreak()
+    }
   }
 }
 

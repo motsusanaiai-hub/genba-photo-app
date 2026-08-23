@@ -1,7 +1,7 @@
 import { useAuthStore } from '@/store/authStore'
 import { useProjectStore } from '@/store/projectStore'
 import { usePhotoStore } from '@/store/photoStore'
-import { insertCloudProjects, updateCloudProject, deleteCloudProject } from '@/lib/cloudSync'
+import { insertCloudProjects, updateCloudProject, deleteCloudProjectCascade } from '@/lib/cloudSync'
 import type { ProjectFormData, ProjectWithCount } from '@/types/project'
 
 export function useProjects() {
@@ -49,8 +49,13 @@ export function useProjects() {
   }
 
   const removeProject = async (id: string) => {
+    // ローカル（localStorage上のprojects/photosメタ、IndexedDB上の写真本体）は
+    // 意図的に一切削除しない。現場削除後も端末内に写真データを残す仕様のため。
     deleteProject(id)
-    await deleteCloudProject(id)
+    const result = await deleteCloudProjectCascade(id)
+    if (!result.projectDeleted || !result.photosDeleted || !result.storageDeleted) {
+      console.error('[useProjects] removeProject: cloud側の削除が一部失敗しました。状況を確認してください:', id, result)
+    }
   }
 
   const getProject = (id: string) => projects.find((p) => p.id === id)
