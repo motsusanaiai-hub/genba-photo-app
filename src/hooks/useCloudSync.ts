@@ -39,21 +39,39 @@ export function useCloudSync() {
       const localProjects = useProjectStore.getState().projects
       const localPhotos = usePhotoStore.getState().photos
 
+      // クラウドが「過去に一度でも認識したid」の集合。soft delete済み
+      // （deleted_atあり）のprojectのidもここに含まれるため、削除済みprojectの
+      // 古いローカルコピーが下のlocalOnlyProjects判定に紛れ込まず、
+      // 誤って再INSERT（＝復活）されることを防ぐ。
       const cloudProjectIds = new Set(cloudProjects.map((p) => p.id))
       const localOnlyProjects = localProjects.filter(
         (p) => p.user_id === user.id && !cloudProjectIds.has(p.id),
       )
 
-      // 削除済み現場（ローカルにprojectが存在しない）に紐づく孤立写真を
-      // クラウド同期（バックフィル・INSERT）の対象から除外する。
-      // 現場削除時はローカルのprojectStoreからもprojectが消える一方、
-      // 写真本体・メタデータは端末内に残す仕様のため、そのままだと
-      // 削除済みproject_idを持つ写真がここで「未同期写真」として拾われ、
-      // insertCloudPhotos が photos_project_id_fkey 違反で失敗し続けてしまう。
-      // 現在ローカルに存在するprojectのidだけを「有効」とみなして絞り込む。
-      const validLocalProjectIds = new Set(
-        localProjects.filter((p) => p.user_id === user.id).map((p) => p.id),
-      )
+      // 画面・projectStoreへ反映するのは有効（未削除）なprojectのみ。
+      // deleted_atが設定されているprojectは、クラウドはidを認識済みだが
+      // 可視stateには一切含めない（＝古いローカルコピーが残っていた端末でも、
+      // 同期のたびに可視stateから除外される）。
+      const activeCloudProjects = cloudProjects.filter((p) => !p.deleted_at)
+
+      // 削除済み現場（deleted_atあり、またはローカルにprojectが存在しない）に
+      // 紐づく孤立写真をクラウド同期（バックフィル・INSERT）の対象から除外する。
+      // 写真本体・メタデータは端末内に残す仕様のため、そのままだと削除済み
+      // project_idを持つ写真が「未同期写真」として拾われ、insertCloudPhotos が
+      // photos_project_id_fkey 違反で失敗し続けてしまう。
+      //
+      // 「有効」の判定は、このデバイスの古いprojectStoreスナップショット
+      // （localProjects）ではなく、この同期処理が今まさに確定させる
+      // activeCloudProjects（有効な既存project）と localOnlyProjects
+      // （新規にバックフィルされ有効になるproject）の集合を使う。
+      // こうしないと、他端末で削除されたばかりでこのデバイスにはまだ
+      // 「有効」に見えているproject（deleted_atをこの同期で初めて検知する
+      // ケース）に対して、その未同期写真を誤って「有効」と判定し、
+      // 同じFK違反を再発させてしまう。
+      const validLocalProjectIds = new Set([
+        ...activeCloudProjects.map((p) => p.id),
+        ...localOnlyProjects.map((p) => p.id),
+      ])
 
       const cloudPhotoIds = new Set(cloudPhotos.map((p) => p.id))
       const userUnsyncedPhotos = localPhotos.filter(
@@ -109,7 +127,7 @@ export function useCloudSync() {
 
       setProjects([
         ...localProjects.filter((p) => p.user_id !== user.id),
-        ...cloudProjects,
+        ...activeCloudProjects,
         ...localOnlyProjects,
       ])
       setPhotos([

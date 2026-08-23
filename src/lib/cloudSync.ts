@@ -36,6 +36,8 @@ function projectRow(project: Project) {
     cover_photo_id: project.cover_photo_id,
     created_at: project.created_at,
     updated_at: project.updated_at,
+    // 既存ローカルデータにキー自体が無い場合(undefined)も null（未削除）として送る
+    deleted_at: project.deleted_at ?? null,
   }
 }
 
@@ -71,7 +73,7 @@ export interface DeleteProjectCascadeResult {
   storageFailedPaths: string[]
   /** photosレコードの削除に成功したか */
   photosDeleted: boolean
-  /** projectsレコードの削除に成功したか */
+  /** projectsレコードのsoft delete（deleted_at設定）に成功したか */
   projectDeleted: boolean
 }
 
@@ -81,8 +83,13 @@ export interface DeleteProjectCascadeResult {
  * ※ 端末内のIndexedDB / localStorage（写真本体・メタデータ）はここでは一切削除しない
  *   （現場削除後も端末内に写真データが残る仕様のため、呼び出し側でも触らないこと）。
  *
- * 途中で失敗しても後続の削除は止めず（例: Storage削除が一部失敗しても projects/photos の
- * 削除は続行する）、どの段階が失敗したかを戻り値で報告する。呼び出し側はこれを見て
+ * projects自体は物理DELETEしない。deleted_atを設定するsoft deleteとし、
+ * 「削除済みである」という事実をクラウド側に残す（別端末・別ブラウザに残っていた
+ * 削除前の古いローカルコピーが、useCloudSyncによって誤って復活しないようにするため）。
+ * photos / Storageは従来通り物理削除する。
+ *
+ * 途中で失敗しても後続の削除は止めず（例: Storage削除が一部失敗しても photos/projects の
+ * 処理は続行する）、どの段階が失敗したかを戻り値で報告する。呼び出し側はこれを見て
  * ログ・再試行導線を検討できる。
  */
 export async function deleteCloudProjectCascade(projectId: string): Promise<DeleteProjectCascadeResult> {
@@ -131,10 +138,15 @@ export async function deleteCloudProjectCascade(projectId: string): Promise<Dele
     result.photosDeleted = true
   }
 
-  // 4. projectsレコード削除
-  const { error: projectError } = await supabase.from('projects').delete().eq('id', projectId)
+  // 4. projectsはsoft delete（deleted_atを設定）。物理DELETEはしない
+  //    （authenticated/anonにはDELETE権限自体が無く、実行しても失敗する）。
+  const nowIso = new Date().toISOString()
+  const { error: projectError } = await supabase
+    .from('projects')
+    .update({ deleted_at: nowIso, updated_at: nowIso })
+    .eq('id', projectId)
   if (projectError) {
-    console.error('[cloudSync] deleteCloudProjectCascade: delete project failed:', projectId, projectError)
+    console.error('[cloudSync] deleteCloudProjectCascade: soft-delete project failed:', projectId, projectError)
   } else {
     result.projectDeleted = true
   }
