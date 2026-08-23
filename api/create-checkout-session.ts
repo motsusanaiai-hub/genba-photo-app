@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
-import { requireEnv } from './_lib/requireEnv'
+import { requireEnv } from './_lib/requireEnv.js'
 
 /**
  * 広告削除（買い切り300円）用のStripe Checkout Session（mode: payment）を作成する。

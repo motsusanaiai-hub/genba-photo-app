@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import Stripe from 'stripe'
-import { requireEnv } from '../_lib/requireEnv'
-import { createSupabaseAdminClient } from '../_lib/supabaseAdmin'
-import { isValidUuid } from '../_lib/isValidUuid'
+import { requireEnv } from '../_lib/requireEnv.js'
+import { createSupabaseAdminClient } from '../_lib/supabaseAdmin.js'
+import { isValidUuid } from '../_lib/isValidUuid.js'
 
 // Stripeの署名検証には生のリクエストボディが必要なため、Vercelの自動bodyパースを無効化する。
 export const config = {
