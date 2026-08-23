@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
-import type { AppUser } from '@/types/auth'
+import type { AppUser, Plan } from '@/types/auth'
 
 const MOCK_USER_KEY = 'genba_mock_user'
 
@@ -44,7 +44,7 @@ export function useAuth() {
           id: profile.id as string,
           email: session.user.email ?? '',
           display_name: profile.display_name as string,
-          plan: (profile.plan as 'free' | 'paid') ?? 'free',
+          plan: (profile.plan as Plan) ?? 'free',
         })
       }
     }
@@ -65,7 +65,7 @@ export function useAuth() {
                 id: profile.id as string,
                 email: session.user.email ?? '',
                 display_name: profile.display_name as string,
-                plan: (profile.plan as 'free' | 'paid') ?? 'free',
+                plan: (profile.plan as Plan) ?? 'free',
               }
             : null,
         )
