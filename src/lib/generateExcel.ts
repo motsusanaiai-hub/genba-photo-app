@@ -88,36 +88,120 @@ export function calcImagePlacement(
   return { extW, extH, nativeColOff, nativeRowOff }
 }
 
+// ─── ページ分割（共通） ─────────────────────────────────────────
+//
+// Free / ads_removed 向けの「1ページだけ出力」機能のための共通ロジック。
+// 「全体の並び順・絶対番号を先に確定し、そのあとページに分割し、
+// 最後に選択されたページだけを抽出する」という設計を、標準・大写真・
+// 施工前後の3レイアウトで共有する。写真そのもの（Photo）か、ペア
+// （generateBeforeAfterExcel.tsのPair）かを問わず使えるよう、要素の
+// 型を汎用化している。
+//
+// 「対象ページをsliceしてからNo.1で採番し直す」実装を避けるため、
+// ページ分割そのものが各ページの絶対開始/終了番号（startNo/endNo）を
+// 保持する。ページ選択UIと実際のExcel生成は、必ずこの同じ関数の
+// 戻り値を参照する（UI側で別途番号を計算し直さない）。
+
+/** 1ページ分の情報。groupIndexは標準/大写真では 0=施工前 1=施工中 2=施工後、施工前後では常に0。 */
+export interface ExcelPageInfo<T> {
+  groupIndex: number
+  items: T[]
+  /** このページの先頭要素の絶対番号（1始まり） */
+  startNo: number
+  /** このページの末尾要素の絶対番号 */
+  endNo: number
+}
+
+/**
+ * 複数グループ（施工前/施工中/施工後、または施工前後の場合は単一グループ）を
+ * またいでページに分割する。グループの並び順どおりに連番を振っていくため、
+ * 「施工中の最初のページがNo.9から始まる」といった既存のシートまたぎの
+ * 連番仕様がそのまま保たれる。件数0のグループはページを1つも生成しない。
+ */
+export function buildExcelPages<T>(groups: T[][], itemsPerPage: number): ExcelPageInfo<T>[] {
+  const pages: ExcelPageInfo<T>[] = []
+  let offset = 0
+  groups.forEach((group, groupIndex) => {
+    const pageCount = Math.ceil(group.length / itemsPerPage)
+    for (let p = 0; p < pageCount; p++) {
+      const items = group.slice(p * itemsPerPage, (p + 1) * itemsPerPage)
+      pages.push({
+        groupIndex,
+        items,
+        startNo: offset + p * itemsPerPage + 1,
+        endNo: offset + Math.min((p + 1) * itemsPerPage, group.length),
+      })
+    }
+    offset += group.length
+  })
+  return pages
+}
+
+/** 標準・大写真で共通の「施工前/施工中/施工後」フェーズ分割（未分類は対象外）。 */
+export function splitByPhase(photos: Photo[]): [Photo[], Photo[], Photo[]] {
+  return [
+    photos.filter((p) => p.phase === 'before'),
+    photos.filter((p) => p.phase === 'during'),
+    photos.filter((p) => p.phase === 'after'),
+  ]
+}
+
+/** シート名（groupIndexの並びと対応）。ページ選択UIのフェーズ表示にも使う。 */
+export const PHASE_SHEET_NAMES = ['施工前', '施工中', '施工後'] as const
+
 // ─── メイン ──────────────────────────────────────────────────
 
-export async function generateExcel(project: Project, photos: Photo[]): Promise<void> {
-  const wb = await buildExcelWorkbook(project, photos)
+/** 標準（2×3）のページ一覧を返す（ページ選択UIと生成処理の両方がこれを参照する）。 */
+export function listStandardExcelPages(photos: Photo[]): ExcelPageInfo<Photo>[] {
+  return buildExcelPages(splitByPhase(photos), PAIRS_PER_PAGE * 2)
+}
+
+export async function generateExcel(
+  project: Project,
+  photos: Photo[],
+  page?: ExcelPageInfo<Photo>,
+): Promise<void> {
+  const wb = await buildExcelWorkbook(project, photos, page)
   const buffer = await wb.xlsx.writeBuffer()
   const safeName = project.name.replace(/[\\/:*?"<>|]/g, '_')
   triggerDownload(buffer as ArrayBuffer, `${safeName}_工事写真台帳.xlsx`)
 }
 
-/** 標準（2×3）レイアウトの Workbook を構築する（ZIP出力など他の出力先からも再利用） */
-export async function buildExcelWorkbook(project: Project, photos: Photo[]): Promise<Workbook> {
+/**
+ * 標準（2×3）レイアウトの Workbook を構築する（ZIP出力など他の出力先からも再利用）。
+ * pageを指定した場合、そのページ1枚分だけを含むWorkbookを生成する
+ * （Free/ads_removed向け。写真番号はpage.startNoを引き継ぐため1から振り直されない）。
+ * page省略時は従来通り全ページ・3シートを構築する（Pro向け、既存動作と完全に同じ）。
+ */
+export async function buildExcelWorkbook(
+  project: Project,
+  photos: Photo[],
+  page?: ExcelPageInfo<Photo>,
+): Promise<Workbook> {
   const wb = new Workbook()
   wb.creator = '現場フォト'
   wb.created = new Date()
 
   // 未分類写真（phase が null）はExcel出力対象外
-  const beforePhotos = photos.filter((p) => p.phase === 'before')
-  const duringPhotos = photos.filter((p) => p.phase === 'during')
-  const afterPhotos  = photos.filter((p) => p.phase === 'after')
-  const totalPhotos  = beforePhotos.length + duringPhotos.length + afterPhotos.length
+  const [beforePhotos, duringPhotos, afterPhotos] = splitByPhase(photos)
+  const totalPhotos = beforePhotos.length + duringPhotos.length + afterPhotos.length
 
-  buildCoverSheet(wb, project, totalPhotos)
+  if (!page) {
+    // 従来通り：全ページ・3シートを構築（Pro向け。既存コードと同一の挙動）
+    buildCoverSheet(wb, project, totalPhotos)
 
-  // シートをまたいで続き番号にするため、前のシートの枚数を累積オフセットとして渡す
-  let photoOffset = 0
-  await buildPhotoSheet(wb, beforePhotos, '施工前', photoOffset)
-  photoOffset += beforePhotos.length
-  await buildPhotoSheet(wb, duringPhotos, '施工中', photoOffset)
-  photoOffset += duringPhotos.length
-  await buildPhotoSheet(wb, afterPhotos,  '施工後', photoOffset)
+    // シートをまたいで続き番号にするため、前のシートの枚数を累積オフセットとして渡す
+    let photoOffset = 0
+    await buildPhotoSheet(wb, beforePhotos, '施工前', photoOffset)
+    photoOffset += beforePhotos.length
+    await buildPhotoSheet(wb, duringPhotos, '施工中', photoOffset)
+    photoOffset += duringPhotos.length
+    await buildPhotoSheet(wb, afterPhotos,  '施工後', photoOffset)
+  } else {
+    // 指定ページ1枚分のみ。表紙の写真枚数は「このExcelに実際に含まれる枚数」にする
+    buildCoverSheet(wb, project, page.items.length)
+    await buildPhotoSheet(wb, page.items, PHASE_SHEET_NAMES[page.groupIndex], page.startNo - 1)
+  }
 
   return wb
 }

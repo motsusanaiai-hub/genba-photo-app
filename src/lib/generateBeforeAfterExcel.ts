@@ -4,6 +4,7 @@ import type { Photo } from '@/types/photo'
 import type { Project } from '@/types/project'
 import {
   type CellFrame,
+  type ExcelPageInfo,
   BOX,
   tc,
   buildCoverSheet,
@@ -12,6 +13,7 @@ import {
   fmtDate,
   colWidthToPx,
   rowHeightToPx,
+  buildExcelPages,
 } from '@/lib/generateExcel'
 
 // ─── レイアウト定数（H_NO/H_PHASE/H_COMMENTは標準台帳と同値） ──
@@ -41,7 +43,7 @@ const PAIRS_PER_PAGE = 3
 
 // ─── ペアリング ────────────────────────────────────────────────
 
-type Pair = { before: Photo | undefined; after: Photo | undefined }
+export type Pair = { before: Photo | undefined; after: Photo | undefined }
 
 /**
  * before / after それぞれを sort_order 昇順で並べ、
@@ -65,37 +67,68 @@ function pairBeforeAfter(photos: Photo[]): Pair[] {
 
 // ─── メイン ──────────────────────────────────────────────────
 
+/** ペア内の実際の写真枚数（ペア数ではなく写真枚数）を数える。表紙の枚数表示に使う。 */
+function countPhotosInPairs(pairs: Pair[]): number {
+  return pairs.reduce((n, p) => n + (p.before ? 1 : 0) + (p.after ? 1 : 0), 0)
+}
+
+/** 施工前後のページ一覧を返す（ページ選択UIと生成処理の両方がこれを参照する）。 */
+export function listBeforeAfterExcelPages(photos: Photo[]): ExcelPageInfo<Pair>[] {
+  return buildExcelPages([pairBeforeAfter(photos)], PAIRS_PER_PAGE)
+}
+
 export async function generateBeforeAfterExcel(
   project: Project,
   photos: Photo[],
+  page?: ExcelPageInfo<Pair>,
 ): Promise<void> {
-  const wb = await buildBeforeAfterWorkbook(project, photos)
+  const wb = await buildBeforeAfterWorkbook(project, photos, page)
   const buffer = await wb.xlsx.writeBuffer()
   const safeName = project.name.replace(/[\\/:*?"<>|]/g, '_')
   triggerDownload(buffer as ArrayBuffer, `${safeName}_施工前後写真台帳.xlsx`)
 }
 
-/** 前後比較レイアウトの Workbook を構築する（ZIP出力など他の出力先からも再利用） */
-export async function buildBeforeAfterWorkbook(project: Project, photos: Photo[]): Promise<Workbook> {
+/**
+ * 前後比較レイアウトの Workbook を構築する（ZIP出力など他の出力先からも再利用）。
+ * pageを指定した場合はそのページ（PAIRS_PER_PAGE組）分だけを含むWorkbookを生成する
+ * （Free/ads_removed向け。番号はpage.startNoを引き継ぐため1から振り直されない）。
+ * page省略時は従来通り全ページを構築する（Pro向け、既存動作と完全に同じ）。
+ */
+export async function buildBeforeAfterWorkbook(
+  project: Project,
+  photos: Photo[],
+  page?: ExcelPageInfo<Pair>,
+): Promise<Workbook> {
   const pairs = pairBeforeAfter(photos)
 
   const wb = new Workbook()
   wb.creator = '現場フォト'
   wb.created = new Date()
 
-  const totalPhotos = pairs.reduce(
-    (n, p) => n + (p.before ? 1 : 0) + (p.after ? 1 : 0),
-    0,
-  )
-  buildCoverSheet(wb, project, totalPhotos, '施工前後写真台帳')
-  await buildBeforeAfterSheet(wb, pairs)
+  if (!page) {
+    // 従来通り：全ページ（Pro向け。既存コードと同一の挙動。pairOffset=0固定）
+    const totalPhotos = countPhotosInPairs(pairs)
+    buildCoverSheet(wb, project, totalPhotos, '施工前後写真台帳')
+    await buildBeforeAfterSheet(wb, pairs)
+  } else {
+    // 指定ページ（PAIRS_PER_PAGE組）分のみ。表紙の写真枚数は
+    // 「このExcelに実際に含まれる枚数」（ペア数ではなく写真枚数）にする
+    const pagePhotoCount = countPhotosInPairs(page.items)
+    buildCoverSheet(wb, project, pagePhotoCount, '施工前後写真台帳')
+    await buildBeforeAfterSheet(wb, page.items, page.startNo - 1)
+  }
 
   return wb
 }
 
 // ─── 施工前後シート ───────────────────────────────────────────
 
-async function buildBeforeAfterSheet(wb: Workbook, pairs: Pair[]): Promise<void> {
+/**
+ * pairOffsetは「このpairs配列の先頭が、全体の中で何番目のペアか（0始まり）」。
+ * 省略時は0で、全ページ出力（Pro）時は常にpairs全件＋pairOffset=0のため、
+ * 既存の「i+1」という採番と完全に同じ結果になる。
+ */
+async function buildBeforeAfterSheet(wb: Workbook, pairs: Pair[], pairOffset = 0): Promise<void> {
   const ws = wb.addWorksheet('施工前後')
   ws.columns = [{ width: COL_W }, { width: COL_W }]
 
@@ -136,9 +169,9 @@ async function buildBeforeAfterSheet(wb: Workbook, pairs: Pair[]): Promise<void>
     ws.getRow(rNo + 3).height = H_DATE
     ws.getRow(rNo + 4).height = H_COMMENT
 
-    // 番号行（施工前後の区別を明示）
-    tc(ws, rNo, 1, before ? `施工前 No.${i + 1}` : '', true, 'center')
-    tc(ws, rNo, 2, after  ? `施工後 No.${i + 1}` : '', true, 'center')
+    // 番号行（施工前後の区別を明示）。pairOffset=0（全ページ出力時）は従来のi+1と同じ値になる
+    tc(ws, rNo, 1, before ? `施工前 No.${pairOffset + i + 1}` : '', true, 'center')
+    tc(ws, rNo, 2, after  ? `施工後 No.${pairOffset + i + 1}` : '', true, 'center')
 
     // フェーズ行（常に固定表示）
     tc(ws, rNo+2, 1, before ? '施工前' : '', false, 'center')

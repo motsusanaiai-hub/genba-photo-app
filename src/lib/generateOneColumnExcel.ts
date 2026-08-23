@@ -10,6 +10,10 @@ import {
   phaseLabel,
   colWidthToPx,
   rowHeightToPx,
+  buildExcelPages,
+  splitByPhase,
+  PHASE_SHEET_NAMES,
+  type ExcelPageInfo,
 } from '@/lib/generateExcel'
 
 // ─── レイアウト定数 ───────────────────────────────────────────
@@ -61,34 +65,56 @@ const ROW_COMMENT_START = 4
 
 // ─── メイン ──────────────────────────────────────────────────
 
-export async function generateOneColumnExcel(project: Project, photos: Photo[]): Promise<void> {
-  const wb = await buildOneColumnWorkbook(project, photos)
+/** 大写真（1×3）のページ一覧を返す（ページ選択UIと生成処理の両方がこれを参照する）。 */
+export function listOneColumnExcelPages(photos: Photo[]): ExcelPageInfo<Photo>[] {
+  return buildExcelPages(splitByPhase(photos), BLOCKS_PER_PAGE)
+}
+
+export async function generateOneColumnExcel(
+  project: Project,
+  photos: Photo[],
+  page?: ExcelPageInfo<Photo>,
+): Promise<void> {
+  const wb = await buildOneColumnWorkbook(project, photos, page)
   const buffer = await wb.xlsx.writeBuffer()
   const safeName = project.name.replace(/[\\/:*?"<>|]/g, '_')
   triggerDownload(buffer as ArrayBuffer, `${safeName}_工事写真台帳(大判).xlsx`)
 }
 
-/** 大写真（1×3）レイアウトの Workbook を構築する（ZIP出力など他の出力先からも再利用） */
-export async function buildOneColumnWorkbook(project: Project, photos: Photo[]): Promise<Workbook> {
+/**
+ * 大写真（1×3）レイアウトの Workbook を構築する（ZIP出力など他の出力先からも再利用）。
+ * pageを指定した場合はそのページ1枚分だけを含むWorkbookを生成する（Free/ads_removed向け）。
+ * page省略時は従来通り全ページ・3シートを構築する（Pro向け、既存動作と完全に同じ）。
+ */
+export async function buildOneColumnWorkbook(
+  project: Project,
+  photos: Photo[],
+  page?: ExcelPageInfo<Photo>,
+): Promise<Workbook> {
   const wb = new Workbook()
   wb.creator = '現場フォト'
   wb.created = new Date()
 
   // 未分類写真（phase が null）はExcel出力対象外
-  const beforePhotos = photos.filter((p) => p.phase === 'before')
-  const duringPhotos = photos.filter((p) => p.phase === 'during')
-  const afterPhotos  = photos.filter((p) => p.phase === 'after')
-  const totalPhotos  = beforePhotos.length + duringPhotos.length + afterPhotos.length
+  const [beforePhotos, duringPhotos, afterPhotos] = splitByPhase(photos)
+  const totalPhotos = beforePhotos.length + duringPhotos.length + afterPhotos.length
 
-  buildCoverSheet(wb, project, totalPhotos)
+  if (!page) {
+    // 従来通り：全ページ・3シートを構築（Pro向け。既存コードと同一の挙動）
+    buildCoverSheet(wb, project, totalPhotos)
 
-  // シートをまたいで続き番号にするため、前のシートの枚数を累積オフセットとして渡す
-  let photoOffset = 0
-  await buildOneColumnSheet(wb, beforePhotos, '施工前', photoOffset)
-  photoOffset += beforePhotos.length
-  await buildOneColumnSheet(wb, duringPhotos, '施工中', photoOffset)
-  photoOffset += duringPhotos.length
-  await buildOneColumnSheet(wb, afterPhotos,  '施工後', photoOffset)
+    // シートをまたいで続き番号にするため、前のシートの枚数を累積オフセットとして渡す
+    let photoOffset = 0
+    await buildOneColumnSheet(wb, beforePhotos, '施工前', photoOffset)
+    photoOffset += beforePhotos.length
+    await buildOneColumnSheet(wb, duringPhotos, '施工中', photoOffset)
+    photoOffset += duringPhotos.length
+    await buildOneColumnSheet(wb, afterPhotos,  '施工後', photoOffset)
+  } else {
+    // 指定ページ1枚分のみ。表紙の写真枚数は「このExcelに実際に含まれる枚数」にする
+    buildCoverSheet(wb, project, page.items.length)
+    await buildOneColumnSheet(wb, page.items, PHASE_SHEET_NAMES[page.groupIndex], page.startNo - 1)
+  }
 
   return wb
 }

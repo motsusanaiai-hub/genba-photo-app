@@ -23,3 +23,12 @@ export function canCreateProject(plan: Plan, currentProjectCount: number): boole
   const limit = projectLimit(plan)
   return limit === null || currentProjectCount < limit
 }
+
+/** Excel出力を全ページ一括で行えるか（false の場合は1ページずつの選択出力になる） */
+export function canExportAllExcelPages(plan: Plan): boolean {
+  return plan === 'pro'
+}
+
+/** Excelページ選択UIに表示する説明文（購入導線・リンクは含めない） */
+export const EXCEL_PAGE_LIMIT_MESSAGE =
+  '現在のプランでは、Excel出力は1回につき1ページのみとなります。全ページを出力するにはProプランをご利用ください。'
