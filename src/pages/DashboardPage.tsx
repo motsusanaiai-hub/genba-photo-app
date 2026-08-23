@@ -1,13 +1,16 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FolderOpen, Plus } from 'lucide-react'
+import { FolderOpen, Plus, X } from 'lucide-react'
 import { useProjects } from '@/hooks/useProjects'
 import { ProjectCard } from '@/components/project/ProjectCard'
 import { Button } from '@/components/ui/button'
 import { Header } from '@/components/layout/Header'
+import { PROJECT_LIMIT_MESSAGE } from '@/lib/plan'
 
 export function DashboardPage() {
   const navigate = useNavigate()
-  const { projects, removeProject } = useProjects()
+  const { projects, canCreateNewProject, removeProject } = useProjects()
+  const [showLimitNotice, setShowLimitNotice] = useState(false)
 
   const handleDelete = async (projectId: string, projectName: string) => {
     const confirmed = window.confirm(
@@ -16,17 +19,39 @@ export function DashboardPage() {
     if (confirmed) await removeProject(projectId)
   }
 
+  // 新規作成の入口（ヘッダーボタン・FAB共通）。上限到達時は遷移させず理由を表示する。
+  const handleNewProjectClick = () => {
+    if (!canCreateNewProject) {
+      setShowLimitNotice(true)
+      return
+    }
+    navigate('/projects/new')
+  }
+
   return (
     <>
       <Header
         title="現場フォト"
         right={
-          <Button size="sm" className="hidden lg:flex" onClick={() => navigate('/projects/new')}>
+          <Button size="sm" className="hidden lg:flex" onClick={handleNewProjectClick}>
             <Plus className="h-4 w-4" />
             新規作成
           </Button>
         }
       />
+
+      {showLimitNotice && (
+        <div className="mx-4 mt-4 lg:mx-6 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-sm p-3 leading-relaxed">
+          <span className="flex-1">{PROJECT_LIMIT_MESSAGE}</span>
+          <button
+            onClick={() => setShowLimitNotice(false)}
+            className="shrink-0 text-amber-700 hover:text-amber-900"
+            aria-label="閉じる"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       <div className="p-4 lg:p-6">
         {projects.length === 0 ? (
@@ -48,7 +73,7 @@ export function DashboardPage() {
 
       {/* スマホ用 FAB */}
       <button
-        onClick={() => navigate('/projects/new')}
+        onClick={handleNewProjectClick}
         className="lg:hidden fixed bottom-20 right-4 z-50 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 active:scale-95 transition-all"
         aria-label="工事を登録する"
       >

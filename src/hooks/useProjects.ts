@@ -2,7 +2,8 @@ import { useAuthStore } from '@/store/authStore'
 import { useProjectStore } from '@/store/projectStore'
 import { usePhotoStore } from '@/store/photoStore'
 import { insertCloudProjects, updateCloudProject, deleteCloudProjectCascade } from '@/lib/cloudSync'
-import type { ProjectFormData, ProjectWithCount } from '@/types/project'
+import { canCreateProject } from '@/lib/plan'
+import type { Project, ProjectFormData, ProjectWithCount } from '@/types/project'
 
 export function useProjects() {
   const user = useAuthStore((s) => s.user)
@@ -18,7 +19,16 @@ export function useProjects() {
       photo_count: photos.filter((ph) => ph.project_id === p.id).length,
     }))
 
-  const createProject = async (data: ProjectFormData) => {
+  // 新規現場作成の可否は、常にこのuserProjects.length（現在ログイン中ユーザーの
+  // 現存件数のみ）を唯一の判定元とする。他ユーザー分を混ぜたり、累計作成数の
+  // ようなカウンタは持たない。
+  const canCreateNewProject = canCreateProject(user?.plan ?? 'free', userProjects.length)
+
+  const createProject = async (data: ProjectFormData): Promise<Project | null> => {
+    // UI側のボタン無効化・案内表示だけに頼らず、作成処理自体でも上限を再チェックする
+    // （URL直打ち等でこの関数が直接呼ばれた場合の二重防御）。
+    if (!canCreateNewProject) return null
+
     const now = new Date().toISOString()
     const project = {
       id: crypto.randomUUID(),
@@ -60,5 +70,12 @@ export function useProjects() {
 
   const getProject = (id: string) => projects.find((p) => p.id === id)
 
-  return { projects: userProjects, createProject, editProject, removeProject, getProject }
+  return {
+    projects: userProjects,
+    canCreateNewProject,
+    createProject,
+    editProject,
+    removeProject,
+    getProject,
+  }
 }
