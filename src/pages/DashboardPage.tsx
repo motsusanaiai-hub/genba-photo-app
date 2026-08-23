@@ -5,6 +5,7 @@ import { useProjects } from '@/hooks/useProjects'
 import { ProjectCard } from '@/components/project/ProjectCard'
 import { Button } from '@/components/ui/button'
 import { Header } from '@/components/layout/Header'
+import { AdSlot } from '@/components/common/AdSlot'
 import { PROJECT_LIMIT_MESSAGE } from '@/lib/plan'
 
 export function DashboardPage() {
@@ -69,6 +70,10 @@ export function DashboardPage() {
             ))}
           </div>
         )}
+
+        {/* 広告枠（free限定。ads_removed/proではAdSlot自体が何もrenderしない）。
+            モバイルFAB（bottom-20〜136px帯）と重ならないよう下に余白を確保する。 */}
+        <AdSlot className="mt-6 mb-24 lg:mb-6" />
       </div>
 
       {/* スマホ用 FAB */}

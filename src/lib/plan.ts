@@ -32,3 +32,8 @@ export function canExportAllExcelPages(plan: Plan): boolean {
 /** Excelページ選択UIに表示する説明文（購入導線・リンクは含めない） */
 export const EXCEL_PAGE_LIMIT_MESSAGE =
   '現在のプランでは、Excel出力は1回につき1ページのみとなります。全ページを出力するにはProプランをご利用ください。'
+
+/** 広告を表示するプランか（true: 表示する / false: 表示しない）。ads_removed購入済みとproは非表示。 */
+export function shouldShowAds(plan: Plan): boolean {
+  return plan === 'free'
+}
