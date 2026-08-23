@@ -8,6 +8,7 @@ import { DashboardPage } from '@/pages/DashboardPage'
 import { ProjectNewPage } from '@/pages/project/ProjectNewPage'
 import { ProjectDetailPage } from '@/pages/project/ProjectDetailPage'
 import { ProjectEditPage } from '@/pages/project/ProjectEditPage'
+import { CheckoutSuccessPage } from '@/pages/billing/CheckoutSuccessPage'
 
 export const router = createBrowserRouter([
   {
@@ -30,6 +31,7 @@ export const router = createBrowserRouter([
       { path: 'projects/new', element: <ProjectNewPage /> },
       { path: 'projects/:projectId', element: <ProjectDetailPage /> },
       { path: 'projects/:projectId/edit', element: <ProjectEditPage /> },
+      { path: 'billing/success', element: <CheckoutSuccessPage /> },
       // Week 5: /settings/templates
     ],
   },

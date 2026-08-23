@@ -6,6 +6,7 @@ import { ProjectCard } from '@/components/project/ProjectCard'
 import { Button } from '@/components/ui/button'
 import { Header } from '@/components/layout/Header'
 import { AdSlot } from '@/components/common/AdSlot'
+import { RemoveAdsButton } from '@/components/billing/RemoveAdsButton'
 import { PROJECT_LIMIT_MESSAGE } from '@/lib/plan'
 
 export function DashboardPage() {
@@ -71,9 +72,14 @@ export function DashboardPage() {
           </div>
         )}
 
-        {/* 広告枠（free限定。ads_removed/proではAdSlot自体が何もrenderしない）。
-            モバイルFAB（bottom-20〜136px帯）と重ならないよう下に余白を確保する。 */}
-        <AdSlot className="mt-6 mb-24 lg:mb-6" />
+        {/* 広告枠（free限定。ads_removed/proではAdSlot自体が何もrenderしない）。 */}
+        <AdSlot className="mt-6" />
+
+        {/* 広告削除の購入導線（free限定。ads_removed/proではRemoveAdsButton自体が
+            何もrenderしない）。広告のすぐ下に置くことで文脈を分かりやすくする。
+            モバイルFAB（bottom-20〜136px帯）と重ならないよう下に余白を確保する
+            （非表示時に余白だけ残らないよう、余白クラスはコンポーネント自身に渡す）。 */}
+        <RemoveAdsButton className="mt-3 mb-24 lg:mb-6" />
       </div>
 
       {/* スマホ用 FAB */}
