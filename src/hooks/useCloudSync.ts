@@ -44,9 +44,26 @@ export function useCloudSync() {
         (p) => p.user_id === user.id && !cloudProjectIds.has(p.id),
       )
 
+      // 削除済み現場（ローカルにprojectが存在しない）に紐づく孤立写真を
+      // クラウド同期（バックフィル・INSERT）の対象から除外する。
+      // 現場削除時はローカルのprojectStoreからもprojectが消える一方、
+      // 写真本体・メタデータは端末内に残す仕様のため、そのままだと
+      // 削除済みproject_idを持つ写真がここで「未同期写真」として拾われ、
+      // insertCloudPhotos が photos_project_id_fkey 違反で失敗し続けてしまう。
+      // 現在ローカルに存在するprojectのidだけを「有効」とみなして絞り込む。
+      const validLocalProjectIds = new Set(
+        localProjects.filter((p) => p.user_id === user.id).map((p) => p.id),
+      )
+
       const cloudPhotoIds = new Set(cloudPhotos.map((p) => p.id))
-      const localOnlyPhotos = localPhotos.filter(
+      const userUnsyncedPhotos = localPhotos.filter(
         (p) => p.user_id === user.id && !cloudPhotoIds.has(p.id),
+      )
+      // クラウド同期対象：有効なprojectに紐づく未同期写真のみ
+      const localOnlyPhotos = userUnsyncedPhotos.filter((p) => validLocalProjectIds.has(p.project_id))
+      // 削除済みprojectに紐づく孤立写真：端末内には残すが、クラウド同期対象にはしない
+      const orphanedLocalPhotos = userUnsyncedPhotos.filter(
+        (p) => !validLocalProjectIds.has(p.project_id),
       )
 
       // クラウドには既に存在するが storage_path が未設定（アップロード未済）の写真
@@ -99,6 +116,8 @@ export function useCloudSync() {
         ...localPhotos.filter((p) => p.user_id !== user.id),
         ...mergedCloudPhotos,
         ...backfilledPhotos,
+        // 孤立写真は同期対象から外すだけで、端末内のstateからは削除しない
+        ...orphanedLocalPhotos,
       ])
     })()
 
