@@ -63,7 +63,7 @@ export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const { getProject } = useProjects()
-  const { photos, removePhoto, setComment, setFloorLocation, setPhase, reorderPhotos, uploadPhotos } = usePhotos(projectId ?? '')
+  const { photos, removePhoto, setComment, setFloorLocation, setPhase, setPhaseForPhotos, reorderPhotos, uploadPhotos } = usePhotos(projectId ?? '')
   const { selected, toggle, selectRange, clear } = usePhotoSelection()
   const deviceSave = useDeviceSave()
 
@@ -123,8 +123,10 @@ export function ProjectDetailPage() {
     clear()
   }
 
+  // 選択順（タップした順）ではなく、変更前の画面上の並び順を維持したままフェーズ変更する
   const handleBatchPhaseChange = (phase: Phase | null) => {
-    selected.forEach((id) => setPhase(id, phase))
+    const orderedIds = displayPhotos.filter((p) => selected.has(p.id)).map((p) => p.id)
+    setPhaseForPhotos(orderedIds, phase)
     clear()
   }
 
@@ -148,7 +150,8 @@ export function ProjectDetailPage() {
   }
 
   const handleCaptureToastPhaseChange = (newPhase: Phase | null) => {
-    captureToast?.photoIds.forEach((id) => setPhase(id, newPhase))
+    if (!captureToast) return
+    setPhaseForPhotos(captureToast.photoIds, newPhase)
   }
 
   // 写真の長押し → アクションシートを開く
