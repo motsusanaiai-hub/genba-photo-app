@@ -391,6 +391,7 @@ export function ProjectDetailPage() {
           onToggle={toggle}
           onRangeSelect={handleRangeSelect}
           gridSize={gridSize}
+          onReorder={reorderPhotos}
         />
       )}
 

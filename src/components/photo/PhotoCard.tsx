@@ -1,4 +1,6 @@
-import { Check } from 'lucide-react'
+import { Check, GripVertical } from 'lucide-react'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import type { Photo } from '@/types/photo'
 import { PhaseBadge } from './PhaseBadge'
 import { useLongPress } from '@/hooks/useLongPress'
@@ -13,9 +15,22 @@ interface Props {
   isSelected?: boolean
   onToggle?: (id: string) => void
   onRangeSelect?: (id: string) => void
+  dragHandle?: boolean  // true = 並び替え用ドラッグハンドルを表示（onReorderが無い一覧では非表示）
 }
 
-export function PhotoCard({ photo, index, onClick, onLongPress, isSelected = false, onToggle, onRangeSelect }: Props) {
+export function PhotoCard({
+  photo, index, onClick, onLongPress, isSelected = false, onToggle, onRangeSelect, dragHandle,
+}: Props) {
+  // ドラッグはハンドル（下部の GripVertical ボタン）にしか listeners を渡さないため、
+  // 写真本体のタップ・長押し・選択操作とは独立して動作する（誤操作の競合なし）。
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: photo.id,
+  })
+  const sortableStyle = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
   const longPress = useLongPress({
     onLongPress: () => onLongPress?.(photo),
     // PC: Shift+クリックで範囲選択、Ctrl/Cmd+クリックで個別選択トグル（プレビューは開かない）
@@ -34,9 +49,12 @@ export function PhotoCard({ photo, index, onClick, onLongPress, isSelected = fal
 
   return (
     <div
+      ref={setNodeRef}
+      style={sortableStyle}
       className={cn(
         'group relative aspect-square rounded-md overflow-hidden',
         isSelected && 'ring-2 ring-primary ring-offset-1',
+        isDragging && 'relative z-10 opacity-60',
       )}
     >
       {/* 写真本体（タップ → ライトボックス / 長押し → アクションシート） */}
@@ -75,6 +93,26 @@ export function PhotoCard({ photo, index, onClick, onLongPress, isSelected = fal
         <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs p-1.5 truncate leading-tight pointer-events-none">
           {photo.comment}
         </div>
+      )}
+
+      {/* 並び替え用ドラッグハンドル（左下）。このハンドルだけがドラッグ開始点。
+          タップ・長押し・選択・スクロールとは独立した専用の当たり判定にすることで、
+          既存操作と競合しないようにしている。 */}
+      {dragHandle && (
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          onClick={(e) => e.stopPropagation()}
+          className={cn(
+            'absolute bottom-1 left-1 h-7 w-7 rounded-full bg-black/50 text-white',
+            'flex items-center justify-center touch-none cursor-grab active:cursor-grabbing',
+            'opacity-70 group-hover:opacity-100 transition-opacity',
+          )}
+          aria-label="ドラッグして並び替え"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
       )}
 
       {/* 選択チェックボックス（右下）
