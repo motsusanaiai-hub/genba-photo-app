@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { X, ImagePlus, Upload, TriangleAlert } from 'lucide-react'
 import { usePhotos } from '@/hooks/usePhotos'
+import { usePhotoFolders } from '@/hooks/usePhotoFolders'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import type { Phase } from '@/types/photo'
+import { supportsDirectoryDrop, getTopLevelEntries, readEntryRecursively, type DroppedFile } from '@/utils/droppedFolder'
+import type { Phase, PhotoFolder } from '@/types/photo'
 
 const PHASE_OPTIONS: { value: Phase; label: string }[] = [
   { value: 'before', label: '施工前' },
@@ -22,10 +24,14 @@ interface SelectedFile {
   file: File
   preview: string
   phase: Phase | null
+  // Windowsフォルダごとドラッグ＆ドロップした場合の階層パス（例: ["6階","外部"]）。
+  // phase===nullの時のみ、未分類フォルダ階層として反映される。単体ファイルは空配列。
+  folderPath: string[]
 }
 
 export function PhotoUploadModal({ open, onClose, projectId, defaultPhase }: Props) {
   const { uploadPhotosWithPhases } = usePhotos(projectId)
+  const { folders, createFolder } = usePhotoFolders(projectId)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const [selected, setSelected] = useState<SelectedFile[]>([])
@@ -47,16 +53,24 @@ export function PhotoUploadModal({ open, onClose, projectId, defaultPhase }: Pro
 
   if (!open) return null
 
-  // 追加済みの選択は上書きせず、現在選択中のフェーズを各ファイルに記録して追加する
-  const handleFiles = (incoming: File[]) => {
-    const images = incoming.filter((f) => f.type.startsWith('image/') || f.name.match(/\.(heic|heif)$/i))
+  // 画像判定 + SelectedFileへの変換。通常のファイル選択・フォルダドロップ両方から使う共通処理。
+  const addFiles = (items: DroppedFile[]) => {
+    const images = items.filter(
+      ({ file }) => file.type.startsWith('image/') || file.name.match(/\.(heic|heif)$/i),
+    )
     if (images.length === 0) return
-    const additions: SelectedFile[] = images.map((f) => ({
-      file: f,
-      preview: URL.createObjectURL(f),
+    const additions: SelectedFile[] = images.map(({ file, folderPath }) => ({
+      file,
+      preview: URL.createObjectURL(file),
       phase,
+      folderPath,
     }))
     setSelected((prev) => [...prev, ...additions])
+  }
+
+  // 追加済みの選択は上書きせず、現在選択中のフェーズを各ファイルに記録して追加する
+  const handleFiles = (incoming: File[]) => {
+    addFiles(incoming.map((file) => ({ file, folderPath: [] })))
   }
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -64,18 +78,86 @@ export function PhotoUploadModal({ open, onClose, projectId, defaultPhase }: Pro
     setIsDragging(true)
   }
   const handleDragLeave = () => setIsDragging(false)
-  const handleDrop = (e: React.DragEvent) => {
+
+  // フォルダごとドロップされた場合はDrag and Drop Entries API（webkitGetAsEntry）で
+  // 再帰的に中のファイルを読み取り、階層パス（例: ["6階","外部"]）をfolderPathとして記録する。
+  // 非対応ブラウザ・単体ファイルのみのドロップでは従来どおりdataTransfer.filesを使う。
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
-    handleFiles(Array.from(e.dataTransfer.files))
+
+    const items = e.dataTransfer.items
+    if (!supportsDirectoryDrop(items)) {
+      handleFiles(Array.from(e.dataTransfer.files))
+      return
+    }
+
+    // DataTransferはイベントハンドラを抜けると無効化されるため、
+    // entryの取得（webkitGetAsEntry）はawaitを挟まずここで同期的に行う
+    const entries = getTopLevelEntries(items)
+    if (entries.length === 0) {
+      handleFiles(Array.from(e.dataTransfer.files))
+      return
+    }
+
+    const results = await Promise.all(entries.map((entry) => readEntryRecursively(entry, [])))
+    addFiles(results.flat())
+  }
+
+  // フォルダ階層パス（例: ["6階","外部"]）→ 最下層フォルダIDを解決する。
+  // 各階層で「同じ親フォルダの中に同名フォルダが既にあれば再利用、無ければ新規作成」を
+  // 繰り返す（＝別の親フォルダ配下の同名フォルダとは区別される）。中間階層（例: "6階"）も
+  // 同じキャッシュに乗るため、複数のサブフォルダ（"6階/外部" と "6階/トイレ" 等）で
+  // 親フォルダを二重作成することはない。
+  const resolveFolderId = async (
+    path: string[],
+    cache: Map<string, string>,
+  ): Promise<string | null> => {
+    let parentId: string | null = null
+    let currentPath: string[] = []
+    for (const segment of path) {
+      currentPath = [...currentPath, segment]
+      const key = currentPath.join('/')
+      const cached = cache.get(key)
+      if (cached) {
+        parentId = cached
+        continue
+      }
+      const existing: PhotoFolder | undefined = folders.find(
+        (f) => f.name === segment && (f.parent_folder_id ?? null) === parentId,
+      )
+      const folder: PhotoFolder = existing ?? (await createFolder(segment, parentId))
+      cache.set(key, folder.id)
+      parentId = folder.id
+    }
+    return parentId
   }
 
   const handleUpload = async () => {
     if (selected.length === 0) return
     setUploading(true)
     setProgress({ done: 0, total: selected.length })
+
+    // フォルダパス → フォルダID の解決（未分類として追加される分のみ対象）。
+    // 同じパスが複数ファイルに登場しても1回しか解決（作成）しないようキャッシュする。
+    const folderIdByPath = new Map<string, string>()
+    const uniquePaths = [
+      ...new Set(
+        selected
+          .filter((s) => s.phase === null && s.folderPath.length > 0)
+          .map((s) => s.folderPath.join('/')),
+      ),
+    ]
+    for (const key of uniquePaths) {
+      await resolveFolderId(key.split('/'), folderIdByPath)
+    }
+
     const uploaded = await uploadPhotosWithPhases(
-      selected.map(({ file, phase }) => ({ file, phase })),
+      selected.map(({ file, phase, folderPath }) => ({
+        file,
+        phase,
+        folderId: phase === null && folderPath.length > 0 ? folderIdByPath.get(folderPath.join('/')) ?? null : null,
+      })),
       (done, total) => setProgress({ done, total }),
     )
     const failedNames = uploaded.filter((p) => p.format_warning).map((p) => p.original_filename)
@@ -102,6 +184,13 @@ export function PhotoUploadModal({ open, onClose, projectId, defaultPhase }: Pro
   }
 
   const countByPhase = (p: Phase | null) => selected.filter((s) => s.phase === p).length
+  const folderPaths = [
+    ...new Set(
+      selected
+        .filter((s) => s.phase === null && s.folderPath.length > 0)
+        .map((s) => s.folderPath.join(' / ')),
+    ),
+  ]
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end lg:items-center justify-center">
@@ -157,13 +246,18 @@ export function PhotoUploadModal({ open, onClose, projectId, defaultPhase }: Pro
                   onClick={() => inputRef.current?.click()}
                 >
                   <ImagePlus className="h-9 w-9 text-muted-foreground" />
-                  <p className="text-base font-medium text-center">
+                  <p className="text-base font-medium text-center lg:hidden">
                     {selected.length > 0 ? 'タップしてさらに追加' : 'タップしてカメラロールから選択'}
                   </p>
-                  <p className="text-xs text-muted-foreground text-center">
+                  <p className="hidden lg:block text-base font-medium text-center">
+                    {selected.length > 0 ? 'クリックしてさらに追加' : '写真またはフォルダをここにドラッグ＆ドロップ'}
+                  </p>
+                  <p className="text-xs text-muted-foreground text-center lg:hidden">
                     スマホ標準カメラで撮った写真もあとから取り込めます
                   </p>
-                  <p className="hidden lg:block text-xs text-muted-foreground">またはドラッグ＆ドロップ</p>
+                  <p className="hidden lg:block text-xs text-muted-foreground text-center">
+                    Windowsのフォルダごとドロップすると、フォルダ名で未分類フォルダを自動作成します
+                  </p>
                   <p className="text-xs text-muted-foreground">JPG・PNG・HEIC対応</p>
                 </div>
               )}
@@ -188,6 +282,11 @@ export function PhotoUploadModal({ open, onClose, projectId, defaultPhase }: Pro
                   <p className="text-xs text-muted-foreground">
                     施工前{countByPhase('before')}枚 / 施工中{countByPhase('during')}枚 / 施工後{countByPhase('after')}枚 / 未分類{countByPhase(null)}枚
                   </p>
+                  {folderPaths.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      未分類フォルダ: {folderPaths.join('、')}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -195,12 +294,21 @@ export function PhotoUploadModal({ open, onClose, projectId, defaultPhase }: Pro
               {selected.length > 0 && !uploading && (
                 <div className="flex gap-2 overflow-x-auto pb-1">
                   {selected.map((s, i) => (
-                    <img
-                      key={i}
-                      src={s.preview}
-                      alt={s.file.name}
-                      className="h-16 w-16 rounded-md object-cover shrink-0 border"
-                    />
+                    <div key={i} className="shrink-0 space-y-1">
+                      <img
+                        src={s.preview}
+                        alt={s.file.name}
+                        className="h-16 w-16 rounded-md object-cover border"
+                      />
+                      {s.folderPath.length > 0 && s.phase === null && (
+                        <p
+                          className="w-16 text-[10px] text-muted-foreground truncate text-center"
+                          title={s.folderPath.join(' / ')}
+                        >
+                          {s.folderPath.join(' / ')}
+                        </p>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}

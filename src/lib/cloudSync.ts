@@ -1,6 +1,6 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 import type { Project } from '@/types/project'
-import type { Photo } from '@/types/photo'
+import type { Photo, PhotoFolder } from '@/types/photo'
 
 const COMPRESSED_BUCKET = 'photo-compressed'
 
@@ -171,6 +171,12 @@ function photoRow(photo: Photo) {
     location: photo.location ?? '',
     sort_order: photo.sort_order,
     phase: photo.phase,
+    // folder_id/previous_folder_idがnull/undefinedの場合はキー自体を送らない。
+    // 新規アップロード写真は常にどちらもnullで作られるため、photo_folders
+    // マイグレーション未適用のSupabase環境でも「写真アップロード → クラウド保存」
+    // という基幹フローが存在しない列を参照して失敗することがないようにするための防御。
+    ...(photo.folder_id != null ? { folder_id: photo.folder_id } : {}),
+    ...(photo.previous_folder_id != null ? { previous_folder_id: photo.previous_folder_id } : {}),
     storage_path: photo.storage_path,
     created_at: photo.created_at,
     updated_at: photo.updated_at,
@@ -243,4 +249,51 @@ export async function downloadCloudCompressed(storagePath: string): Promise<Blob
   } catch {
     return null
   }
+}
+
+// ─── photo_folders（未分類フォルダ） ─────────────────────────
+
+function folderRow(folder: PhotoFolder) {
+  return {
+    id: folder.id,
+    project_id: folder.project_id,
+    user_id: folder.user_id,
+    name: folder.name,
+    parent_folder_id: folder.parent_folder_id ?? null,
+    sort_order: folder.sort_order,
+    created_at: folder.created_at,
+    updated_at: folder.updated_at,
+  }
+}
+
+export async function fetchCloudFolders(userId: string): Promise<PhotoFolder[]> {
+  if (!isSupabaseConfigured || !supabase) return []
+  const { data, error } = await supabase.from('photo_folders').select('*').eq('user_id', userId)
+  if (error) {
+    console.error('[cloudSync] fetchCloudFolders failed:', error)
+    return []
+  }
+  return (data ?? []) as PhotoFolder[]
+}
+
+export async function insertCloudFolders(folders: PhotoFolder[]): Promise<void> {
+  if (!isSupabaseConfigured || !supabase || folders.length === 0) return
+  const { error } = await supabase.from('photo_folders').insert(folders.map(folderRow))
+  if (error) console.error('[cloudSync] insertCloudFolders failed:', error)
+}
+
+export async function updateCloudFolder(id: string, data: Partial<PhotoFolder>): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) return
+  const { error } = await supabase
+    .from('photo_folders')
+    .update({ ...data, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) console.error('[cloudSync] updateCloudFolder failed:', error)
+}
+
+/** フォルダ削除。photos.folder_id は DB側の on delete set null で自動的にnullへ戻る */
+export async function deleteCloudFolder(id: string): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) return
+  const { error } = await supabase.from('photo_folders').delete().eq('id', id)
+  if (error) console.error('[cloudSync] deleteCloudFolder failed:', error)
 }

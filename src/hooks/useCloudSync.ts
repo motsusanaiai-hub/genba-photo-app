@@ -2,27 +2,31 @@ import { useEffect, useRef } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import { useProjectStore } from '@/store/projectStore'
 import { usePhotoStore } from '@/store/photoStore'
+import { useFolderStore } from '@/store/folderStore'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { photoStorage } from '@/lib/photoStorage'
 import {
   fetchCloudProjects,
   fetchCloudPhotos,
+  fetchCloudFolders,
   insertCloudProjects,
   insertCloudPhotos,
+  insertCloudFolders,
   updateCloudPhoto,
   uploadCompressedToCloud,
 } from '@/lib/cloudSync'
 import type { Photo } from '@/types/photo'
 
 /**
- * ログイン確定後に1回、Supabaseから工事・写真を取得してローカルstateを更新する。
- * ローカルにのみ存在する（クラウド未登録の）工事・写真は、このタイミングで
+ * ログイン確定後に1回、Supabaseから工事・写真・未分類フォルダを取得してローカルstateを更新する。
+ * ローカルにのみ存在する（クラウド未登録の）工事・写真・フォルダは、このタイミングで
  * クラウドへバックフィル（圧縮写真もStorageへアップロード）し、消えないようにする。
  */
 export function useCloudSync() {
   const user = useAuthStore((s) => s.user)
   const setProjects = useProjectStore((s) => s.setProjects)
   const setPhotos = usePhotoStore((s) => s.setPhotos)
+  const setFolders = useFolderStore((s) => s.setFolders)
   const syncedUserId = useRef<string | null>(null)
 
   useEffect(() => {
@@ -31,13 +35,15 @@ export function useCloudSync() {
 
     let cancelled = false
     ;(async () => {
-      const [cloudProjects, cloudPhotos] = await Promise.all([
+      const [cloudProjects, cloudPhotos, cloudFolders] = await Promise.all([
         fetchCloudProjects(user.id),
         fetchCloudPhotos(user.id),
+        fetchCloudFolders(user.id),
       ])
 
       const localProjects = useProjectStore.getState().projects
       const localPhotos = usePhotoStore.getState().photos
+      const localFolders = useFolderStore.getState().folders
 
       // クラウドが「過去に一度でも認識したid」の集合。soft delete済み
       // （deleted_atあり）のprojectのidもここに含まれるため、削除済みprojectの
@@ -84,6 +90,18 @@ export function useCloudSync() {
         (p) => !validLocalProjectIds.has(p.project_id),
       )
 
+      // フォルダの同期（写真と同様、有効なprojectに紐づく未同期フォルダのみバックフィル対象とする。
+      // フォルダにはStorage連携が無いため、写真のような圧縮版アップロード・repair処理は不要）。
+      const cloudFolderIds = new Set(cloudFolders.map((f) => f.id))
+      const userUnsyncedFolders = localFolders.filter(
+        (f) => f.user_id === user.id && !cloudFolderIds.has(f.id),
+      )
+      const localOnlyFolders = userUnsyncedFolders.filter((f) => validLocalProjectIds.has(f.project_id))
+      // 削除済みprojectに紐づく孤立フォルダ：端末内には残すが、クラウド同期対象にはしない
+      const orphanedLocalFolders = userUnsyncedFolders.filter(
+        (f) => !validLocalProjectIds.has(f.project_id),
+      )
+
       // クラウドには既に存在するが storage_path が未設定（アップロード未済）の写真
       const repairTargets = cloudPhotos.filter((p) => !p.storage_path)
 
@@ -116,6 +134,7 @@ export function useCloudSync() {
       await Promise.all([
         insertCloudProjects(localOnlyProjects),
         insertCloudPhotos(backfilledPhotos),
+        insertCloudFolders(localOnlyFolders),
       ])
       if (cancelled) return
 
@@ -137,10 +156,17 @@ export function useCloudSync() {
         // 孤立写真は同期対象から外すだけで、端末内のstateからは削除しない
         ...orphanedLocalPhotos,
       ])
+      setFolders([
+        ...localFolders.filter((f) => f.user_id !== user.id),
+        ...cloudFolders,
+        ...localOnlyFolders,
+        // 孤立フォルダは同期対象から外すだけで、端末内のstateからは削除しない
+        ...orphanedLocalFolders,
+      ])
     })()
 
     return () => {
       cancelled = true
     }
-  }, [user, setProjects, setPhotos])
+  }, [user, setProjects, setPhotos, setFolders])
 }

@@ -56,9 +56,32 @@ export interface Photo {
   location?: string              // 場所（例: "機械室"）。旧データには存在しない場合がある
   sort_order: number
   phase: Phase | null
+  // 未分類フォルダのID。未分類（phase===null）の時のみ意味を持つ。
+  // 施工前/中/後へ分類した時点でnullに戻す（フォルダは未分類写真の整理専用）。
+  // 旧データには存在しない場合があるためoptional（undefinedはnullと同じ＝未分類直下扱い）。
+  folder_id?: string | null
+  // 分類直前まで所属していたフォルダのID。未分類→施工前/中/後で
+  // folder_id をnullに戻す際に「現在のfolder_id」をここへ退避し、
+  // 施工前/中/後→未分類で戻す際にここから復元する（フォルダが削除済みなら復元しない）。
+  // 未分類の状態では常にnull（previous_folder_id!==null は「現在分類中」を意味する）。
+  previous_folder_id?: string | null
   thumbnail_data_url: string    // base64 data URL（アップロード端末でのローカル即時表示用。他端末同期分は空文字）
   storage_path: string | null   // Supabase Storage上の600px圧縮写真パス（${user_id}/${id}.jpg）
   created_at: string
   updated_at: string
   format_warning?: boolean      // 取り込み時にサムネイル/圧縮生成に失敗した（クライアントのみ・DB非保存）
+}
+
+/** 未分類タブ内の写真整理用フォルダ（階層化対応。トップレベルは parent_folder_id === null） */
+export interface PhotoFolder {
+  id: string
+  project_id: string
+  user_id: string
+  name: string
+  // 親フォルダのID。null/undefinedはトップレベル（未分類フォルダ一覧直下）を意味する。
+  // 旧データ（1階層時代に作成されたフォルダ）には存在しない場合があるためoptional。
+  parent_folder_id?: string | null
+  sort_order: number
+  created_at: string
+  updated_at: string
 }

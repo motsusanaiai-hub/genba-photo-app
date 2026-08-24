@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, Navigate } from 'react-router-dom'
-import { ChevronLeft, Camera, ImagePlus, Layers, Pencil, Plus, LayoutGrid, List, Columns2 } from 'lucide-react'
+import { ChevronLeft, Camera, ImagePlus, Layers, Pencil, Plus, LayoutGrid, List, Columns2, Folder, FolderPlus, FolderPen, Trash2, CheckSquare } from 'lucide-react'
 import { ExportButton } from '@/components/project/ExportButton'
 import { BeforeAfterExportButton } from '@/components/project/BeforeAfterExportButton'
 import { LargePhotoExportButton } from '@/components/project/LargePhotoExportButton'
 import { ZipExportButton } from '@/components/project/ZipExportButton'
 import { useProjects } from '@/hooks/useProjects'
 import { usePhotos } from '@/hooks/usePhotos'
+import { usePhotoFolders } from '@/hooks/usePhotoFolders'
 import { usePhotoSelection } from '@/hooks/usePhotoSelection'
 import { Header } from '@/components/layout/Header'
 import { PhotoGrid, type GridSize } from '@/components/photo/PhotoGrid'
@@ -19,11 +20,16 @@ import { PhotoLightbox } from '@/components/photo/PhotoLightbox'
 import { PhaseSaveToast } from '@/components/photo/PhaseSaveToast'
 import { PhotoActionSheet } from '@/components/photo/PhotoActionSheet'
 import { DeviceSaveBanner } from '@/components/photo/DeviceSaveBanner'
+import { FolderList } from '@/components/photo/FolderList'
+import { SubfolderRow } from '@/components/photo/SubfolderRow'
+import { FolderFormModal } from '@/components/photo/FolderFormModal'
+import { FolderPickerSheet } from '@/components/photo/FolderPickerSheet'
+import { FolderDeleteConfirmModal } from '@/components/photo/FolderDeleteConfirmModal'
 import { useDeviceSave } from '@/hooks/useDeviceSave'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { ALL_PHASE_KEYS, PHASE_KEY_ACTIVE_CLASS, PHASE_KEY_LABEL, type Phase, type PhaseKey } from '@/types/photo'
-import type { Photo } from '@/types/photo'
+import type { Photo, PhotoFolder } from '@/types/photo'
 
 type ViewMode = 'grid' | 'ledger' | 'compare'
 
@@ -63,8 +69,9 @@ export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const { getProject } = useProjects()
-  const { photos, removePhoto, setComment, setFloorLocation, setPhase, setPhaseForPhotos, reorderPhotos, uploadPhotos } = usePhotos(projectId ?? '')
-  const { selected, toggle, selectRange, clear } = usePhotoSelection()
+  const { photos, removePhoto, removePhotos, setComment, setFloorLocation, setPhase, setPhaseForPhotos, moveToFolder, reorderPhotos, uploadPhotos } = usePhotos(projectId ?? '')
+  const { folders, photoCountByFolder, folderPathLabel, getFolderDeletionInfo, createFolder, renameFolder, removeFolder } = usePhotoFolders(projectId ?? '', removePhotos)
+  const { selected, toggle, selectRange, selectAll, clear } = usePhotoSelection()
   const deviceSave = useDeviceSave()
 
   const beforePhotos = photos.filter((p) => p.phase === 'before')
@@ -88,6 +95,16 @@ export function ProjectDetailPage() {
   const [overlayBasePhoto, setOverlayBasePhoto] = useState<Photo | null>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
 
+  // フォルダ閲覧状態（未分類のみ表示している時だけ有効）。
+  // undefined = フォルダ一覧（トップ）を表示 / null = 「フォルダなし」の中身
+  // string[]（1件以上） = 開いているフォルダの経路（末尾が現在地。階層ナビ・パンくず用）
+  const [folderView, setFolderView] = useState<string[] | null | undefined>(undefined)
+  const [showCreateFolder, setShowCreateFolder] = useState(false)
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null)
+  const [deletingFolderId, setDeletingFolderId] = useState<string | null>(null)
+  const [showFolderPicker, setShowFolderPicker] = useState(false)
+  const [creatingFolderForMove, setCreatingFolderForMove] = useState(false)
+
   const project = getProject(projectId ?? '')
 
   useEffect(() => {
@@ -106,6 +123,58 @@ export function ProjectDetailPage() {
 
   const displayPhotos = photos.filter((p) => visiblePhases.has(p.phase ?? 'unclassified'))
 
+  // フォルダ一覧は「未分類のみを表示中」かつ「比較モードではない」時だけ使う
+  // （施工前/中/後にはフォルダ概念を持ち込まない。比較モードは各ペイン独自のタブ切替のため対象外）
+  const isUnclassifiedOnly = visiblePhases.size === 1 && visiblePhases.has('unclassified')
+  const showFolderBrowsing = isUnclassifiedOnly && viewMode !== 'compare'
+  const showFolderList = showFolderBrowsing && folderView === undefined
+
+  // 現在開いているフォルダのID（フォルダなし表示中はnull、フォルダ一覧表示中はundefined）
+  const currentFolderId = Array.isArray(folderView) ? folderView[folderView.length - 1] : folderView
+
+  // 現在の経路上の実フォルダオブジェクト列（パンくず表示用。先頭が最上位、末尾が現在地）
+  const folderPathChain: PhotoFolder[] = Array.isArray(folderView)
+    ? folderView.map((id) => folders.find((f) => f.id === id)).filter((f): f is PhotoFolder => !!f)
+    : []
+
+  // フォルダの中身を開いている間は、displayPhotosをさらにfolder_idで絞り込む（直下の写真のみ。
+  // サブフォルダの中の写真は含まない＝Windows Explorer同様、フォルダとファイルを別々に扱う）
+  const folderScopedPhotos =
+    showFolderBrowsing && folderView !== undefined
+      ? displayPhotos.filter((p) => (p.folder_id ?? null) === currentFolderId)
+      : displayPhotos
+
+  // 現在開いているフォルダ直下のサブフォルダ一覧（トップレベルのフォルダ一覧画面では使わない）
+  const currentSubfolders = showFolderBrowsing && Array.isArray(folderView)
+    ? folders.filter((f) => (f.parent_folder_id ?? null) === currentFolderId)
+    : []
+
+  const topLevelFolders = folders.filter((f) => (f.parent_folder_id ?? null) === null)
+
+  const currentFolderLabel =
+    folderView === null ? 'フォルダなし（未分類直下）' : folderPathChain.map((f) => f.name).join(' / ')
+
+  // パンくず表示用のセグメント列（先頭は常に「未分類」＝トップレベルへのリンク）
+  const breadcrumbSegments: { label: string; onClick?: () => void }[] = (() => {
+    const segments: { label: string; onClick?: () => void }[] = [
+      { label: '未分類', onClick: () => { setFolderView(undefined); clear() } },
+    ]
+    if (folderView === null) {
+      segments.push({ label: 'フォルダなし' })
+    } else if (Array.isArray(folderView)) {
+      folderPathChain.forEach((folder, i) => {
+        const isCurrent = i === folderPathChain.length - 1
+        segments.push({
+          label: folder.name,
+          onClick: isCurrent
+            ? undefined
+            : () => { setFolderView(folderPathChain.slice(0, i + 1).map((f) => f.id)); clear() },
+        })
+      })
+    }
+    return segments
+  })()
+
   // フェーズ表示フィルタの個別ON/OFF。最後の1つはOFFにできない（無視する）
   const togglePhaseVisibility = (key: PhaseKey) => {
     setVisiblePhases((prev) => {
@@ -115,17 +184,97 @@ export function ProjectDetailPage() {
       else next.add(key)
       return next
     })
+    setFolderView(undefined)
     clear()
   }
 
   const handleShowAllPhases = () => {
     setVisiblePhases(new Set(ALL_PHASE_KEYS))
+    setFolderView(undefined)
     clear()
+  }
+
+  // ─── フォルダ操作 ──────────────────────────────────────────
+  // トップレベルのフォルダ一覧から開けば親なし、フォルダの中から「サブフォルダ」で
+  // 開けば現在のフォルダを親として作成する
+  const handleCreateFolder = async (name: string) => {
+    const parentId = Array.isArray(folderView) ? currentFolderId ?? null : null
+    await createFolder(name, parentId)
+    setShowCreateFolder(false)
+  }
+
+  const handleRenameFolder = async (name: string) => {
+    if (!renamingFolderId) return
+    await renameFolder(renamingFolderId, name)
+    setRenamingFolderId(null)
+  }
+
+  // フォルダ削除は確認ダイアログ（FolderDeleteConfirmModal）で
+  // 「フォルダだけ削除」「フォルダと写真を削除」の2択を選ばせる
+  const handleDeleteFolder = () => {
+    if (!currentFolderId) return
+    setDeletingFolderId(currentFolderId)
+  }
+
+  const handleAfterFolderDeleted = () => {
+    setDeletingFolderId(null)
+    // 削除したフォルダより1つ上の階層へ戻る（トップレベルフォルダの削除ならフォルダ一覧へ）
+    if (Array.isArray(folderView) && folderView.length > 1) {
+      setFolderView(folderView.slice(0, -1))
+    } else {
+      setFolderView(undefined)
+    }
+  }
+
+  const handleConfirmDeleteFolderKeepPhotos = async () => {
+    if (!deletingFolderId) return
+    await removeFolder(deletingFolderId, 'keepPhotos')
+    handleAfterFolderDeleted()
+  }
+
+  const handleConfirmDeleteFolderWithPhotos = async () => {
+    if (!deletingFolderId) return
+    await removeFolder(deletingFolderId, 'deletePhotos')
+    handleAfterFolderDeleted()
+  }
+
+  // フォルダ一覧・サブフォルダタイルからフォルダを開く
+  const handleOpenFolder = (folderId: string | null) => {
+    setFolderView(folderId === null ? null : [folderId])
+    clear()
+  }
+
+  const handleOpenSubfolder = (folderId: string) => {
+    setFolderView((prev) => (Array.isArray(prev) ? [...prev, folderId] : [folderId]))
+    clear()
+  }
+
+  // パンくずの「戻る」= 1階層だけ上へ戻る
+  const handleBackOneLevel = () => {
+    if (Array.isArray(folderView) && folderView.length > 1) {
+      setFolderView(folderView.slice(0, -1))
+    } else {
+      setFolderView(undefined)
+    }
+    clear()
+  }
+
+  // 複数選択中の写真をフォルダへ移動
+  const handleMoveSelectedToFolder = (folderId: string | null) => {
+    moveToFolder(Array.from(selected), folderId)
+    setShowFolderPicker(false)
+    setCreatingFolderForMove(false)
+    clear()
+  }
+
+  const handleCreateFolderForMove = async (name: string) => {
+    const folder = await createFolder(name)
+    handleMoveSelectedToFolder(folder.id)
   }
 
   // 選択順（タップした順）ではなく、変更前の画面上の並び順を維持したままフェーズ変更する
   const handleBatchPhaseChange = (phase: Phase | null) => {
-    const orderedIds = displayPhotos.filter((p) => selected.has(p.id)).map((p) => p.id)
+    const orderedIds = folderScopedPhotos.filter((p) => selected.has(p.id)).map((p) => p.id)
     setPhaseForPhotos(orderedIds, phase)
     clear()
   }
@@ -159,9 +308,10 @@ export function ProjectDetailPage() {
     setActionSheetPhoto(photo)
   }
 
-  // PC: Shift+クリックで直前の選択からの範囲選択（表示中の並び順に基づく）
+  // PC: Shift+クリックで直前の選択からの範囲選択（画面に実際に表示中の並び順に基づく。
+  // フォルダ中身を表示中はfolderScopedPhotosがdisplayPhotosの絞り込みなのでそちらを使う）
   const handleRangeSelect = (id: string) => {
-    selectRange(displayPhotos, id)
+    selectRange(folderScopedPhotos, id)
   }
 
   const handleOpenOverlayCapture = () => {
@@ -372,27 +522,60 @@ export function ProjectDetailPage() {
           onReorder={reorderPhotos}
           onDeletePhoto={removePhoto}
         />
+      ) : showFolderList ? (
+        <FolderList
+          folders={topLevelFolders}
+          photoCountByFolder={photoCountByFolder}
+          noFolderCount={displayPhotos.filter((p) => (p.folder_id ?? null) === null).length}
+          onOpenFolder={handleOpenFolder}
+          onCreateFolder={() => setShowCreateFolder(true)}
+        />
       ) : displayPhotos.length === 0 ? (
         <FilterEmptyState onShowAll={handleShowAllPhases} />
-      ) : viewMode === 'ledger' ? (
-        <LedgerView
-          photos={displayPhotos}
-          onPhotoClick={setLightboxPhoto}
-          onCommentChange={setComment}
-          onFloorLocationChange={setFloorLocation}
-          onReorder={reorderPhotos}
-        />
+      ) : folderScopedPhotos.length === 0 && currentSubfolders.length === 0 ? (
+        <FolderEmptyState folderLabel={currentFolderLabel} onBack={handleBackOneLevel} />
       ) : (
-        <PhotoGrid
-          photos={displayPhotos}
-          onPhotoClick={setLightboxPhoto}
-          onPhotoLongPress={handlePhotoLongPress}
-          selectedIds={selected}
-          onToggle={toggle}
-          onRangeSelect={handleRangeSelect}
-          gridSize={gridSize}
-          onReorder={reorderPhotos}
-        />
+        <>
+          {showFolderBrowsing && folderView !== undefined && (
+            <FolderBreadcrumb
+              segments={breadcrumbSegments}
+              isRealFolder={Array.isArray(folderView)}
+              onBack={handleBackOneLevel}
+              onCreateSubfolder={() => setShowCreateFolder(true)}
+              onRename={() => setRenamingFolderId(currentFolderId ?? null)}
+              onDelete={handleDeleteFolder}
+              onSelectAll={() => selectAll(folderScopedPhotos.map((p) => p.id))}
+            />
+          )}
+          {/* サブフォルダタイル（直下の写真と同じ画面にまとめて表示） */}
+          <SubfolderRow
+            folders={currentSubfolders}
+            photoCountByFolder={photoCountByFolder}
+            onOpenFolder={handleOpenSubfolder}
+          />
+          {folderScopedPhotos.length > 0 && (
+            viewMode === 'ledger' ? (
+              <LedgerView
+                photos={folderScopedPhotos}
+                onPhotoClick={setLightboxPhoto}
+                onCommentChange={setComment}
+                onFloorLocationChange={setFloorLocation}
+                onReorder={reorderPhotos}
+              />
+            ) : (
+              <PhotoGrid
+                photos={folderScopedPhotos}
+                onPhotoClick={setLightboxPhoto}
+                onPhotoLongPress={handlePhotoLongPress}
+                selectedIds={selected}
+                onToggle={toggle}
+                onRangeSelect={handleRangeSelect}
+                gridSize={gridSize}
+                onReorder={reorderPhotos}
+              />
+            )
+          )}
+        </>
       )}
 
       {/* スマホ用 FAB: 写真を重ねて撮影（写真が1枚以上ある場合のみ） */}
@@ -469,7 +652,7 @@ export function ProjectDetailPage() {
       {lightboxPhoto && (
         <PhotoLightbox
           photo={lightboxPhoto}
-          photos={displayPhotos}
+          photos={folderScopedPhotos}
           onClose={() => setLightboxPhoto(null)}
           onChange={setLightboxPhoto}
           onDelete={async (photoId) => {
@@ -478,11 +661,12 @@ export function ProjectDetailPage() {
         />
       )}
 
-      {/* 一括フェーズ変更バー */}
+      {/* 一括フェーズ変更バー（未分類のみ表示中はフォルダへ移動ボタンも表示） */}
       <BatchActionBar
         count={selected.size}
         onPhaseChange={handleBatchPhaseChange}
         onClear={clear}
+        onMoveToFolder={isUnclassifiedOnly ? () => setShowFolderPicker(true) : undefined}
       />
 
       {/* スマホに保存バナー（カメラFABより上、BottomNavより上に配置） */}
@@ -510,6 +694,56 @@ export function ProjectDetailPage() {
           onDelete={handleActionSheetDelete}
         />
       )}
+
+      {/* フォルダ新規作成 */}
+      <FolderFormModal
+        open={showCreateFolder}
+        title="新規フォルダ"
+        submitLabel="作成"
+        onClose={() => setShowCreateFolder(false)}
+        onSubmit={handleCreateFolder}
+      />
+
+      {/* フォルダ名変更 */}
+      <FolderFormModal
+        open={renamingFolderId !== null}
+        title="フォルダ名を変更"
+        submitLabel="保存"
+        initialName={folders.find((f) => f.id === renamingFolderId)?.name ?? ''}
+        onClose={() => setRenamingFolderId(null)}
+        onSubmit={handleRenameFolder}
+      />
+
+      {/* フォルダ削除確認（フォルダだけ削除 / フォルダと写真を削除の2択） */}
+      <FolderDeleteConfirmModal
+        open={deletingFolderId !== null}
+        folderName={folders.find((f) => f.id === deletingFolderId)?.name ?? ''}
+        descendantFolderCount={deletingFolderId ? getFolderDeletionInfo(deletingFolderId).descendantFolderCount : 0}
+        photoCount={deletingFolderId ? getFolderDeletionInfo(deletingFolderId).photoCount : 0}
+        onCancel={() => setDeletingFolderId(null)}
+        onKeepPhotos={handleConfirmDeleteFolderKeepPhotos}
+        onDeletePhotos={handleConfirmDeleteFolderWithPhotos}
+      />
+
+      {/* 複数選択写真の移動先フォルダ選択（階層に関わらずプロジェクト内の全フォルダをフラットに提示） */}
+      <FolderPickerSheet
+        open={showFolderPicker}
+        folders={folders}
+        folderLabel={folderPathLabel}
+        onClose={() => setShowFolderPicker(false)}
+        onSelect={handleMoveSelectedToFolder}
+        onCreateNew={() => {
+          setShowFolderPicker(false)
+          setCreatingFolderForMove(true)
+        }}
+      />
+      <FolderFormModal
+        open={creatingFolderForMove}
+        title="新規フォルダを作成して移動"
+        submitLabel="作成して移動"
+        onClose={() => setCreatingFolderForMove(false)}
+        onSubmit={handleCreateFolderForMove}
+      />
     </>
   )
 }
@@ -543,6 +777,111 @@ function FilterEmptyState({ onShowAll }: { onShowAll: () => void }) {
       <Button variant="outline" size="sm" onClick={onShowAll}>
         すべて表示
       </Button>
+    </div>
+  )
+}
+
+function FolderEmptyState({ folderLabel, onBack }: { folderLabel: string; onBack: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[30vh] gap-3 text-center p-4">
+      <p className="text-muted-foreground text-sm">
+        「{folderLabel}」に写真はありません
+      </p>
+      <Button variant="outline" size="sm" onClick={onBack}>
+        フォルダ一覧に戻る
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * フォルダ中身表示中のパンくず（例: 未分類 > 6階 > 外部）+ 操作
+ * （1階層戻る・サブフォルダ作成・すべて選択・名前変更・削除）。
+ * segmentsは先頭が常に「未分類」（トップレベルへのリンク）、以降が開いている経路。
+ * 最後のセグメント（現在地）だけはonClickを持たない。
+ */
+function FolderBreadcrumb({
+  segments,
+  isRealFolder,
+  onBack,
+  onCreateSubfolder,
+  onRename,
+  onDelete,
+  onSelectAll,
+}: {
+  segments: { label: string; onClick?: () => void }[]
+  isRealFolder: boolean
+  onBack: () => void
+  onCreateSubfolder: () => void
+  onRename: () => void
+  onDelete: () => void
+  onSelectAll: () => void
+}) {
+  return (
+    <div className="flex items-center gap-1.5 px-3 py-2 border-b bg-muted/30 text-sm overflow-x-auto">
+      <button
+        onClick={onBack}
+        className="flex items-center gap-1 text-muted-foreground hover:text-foreground shrink-0"
+      >
+        <ChevronLeft className="h-4 w-4" />
+        戻る
+      </button>
+      <span className="text-muted-foreground shrink-0">|</span>
+
+      {/* パンくず本体 */}
+      <div className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto">
+        {segments.map((seg, i) => (
+          <span key={i} className="flex items-center gap-1 shrink-0">
+            {i > 0 && <span className="text-muted-foreground text-xs">›</span>}
+            {seg.onClick ? (
+              <button
+                onClick={seg.onClick}
+                className="text-muted-foreground hover:text-foreground truncate max-w-[7rem]"
+              >
+                {seg.label}
+              </button>
+            ) : (
+              <span className="font-medium truncate max-w-[7rem] flex items-center gap-1">
+                {i > 0 && <Folder className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+                {seg.label}
+              </span>
+            )}
+          </span>
+        ))}
+      </div>
+
+      <button
+        onClick={onSelectAll}
+        className="shrink-0 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors"
+      >
+        <CheckSquare className="h-3.5 w-3.5" />
+        すべて選択
+      </button>
+      {isRealFolder && (
+        <>
+          <button
+            onClick={onCreateSubfolder}
+            className="shrink-0 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors"
+          >
+            <FolderPlus className="h-3.5 w-3.5" />
+            サブフォルダ
+          </button>
+          <button
+            onClick={onRename}
+            className="shrink-0 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors"
+          >
+            <FolderPen className="h-3.5 w-3.5" />
+            名前変更
+          </button>
+          <button
+            onClick={onDelete}
+            className="shrink-0 flex items-center gap-1 text-xs text-destructive hover:bg-destructive/5 px-2 py-1 rounded transition-colors"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            削除
+          </button>
+        </>
+      )}
     </div>
   )
 }
