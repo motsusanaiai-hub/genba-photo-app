@@ -151,6 +151,11 @@ export function ProjectDetailPage() {
 
   const topLevelFolders = folders.filter((f) => (f.parent_folder_id ?? null) === null)
 
+  // 「写真を追加」モーダルの取り込み先初期値：実際にフォルダの中身を開いている時だけ
+  // そのフォルダを渡す（フォルダ一覧画面・「フォルダなし」表示中・比較モード等では
+  // 未分類直下＝nullを渡す）
+  const uploadInitialFolderId = showFolderBrowsing && Array.isArray(folderView) ? currentFolderId ?? null : null
+
   const currentFolderLabel =
     folderView === null ? 'フォルダなし（未分類直下）' : folderPathChain.map((f) => f.name).join(' / ')
 
@@ -530,12 +535,18 @@ export function ProjectDetailPage() {
           onOpenFolder={handleOpenFolder}
           onCreateFolder={() => setShowCreateFolder(true)}
         />
-      ) : displayPhotos.length === 0 ? (
+      ) : displayPhotos.length === 0 && !(showFolderBrowsing && folderView !== undefined) ? (
+        // フォルダ中身を閲覧中（folderView !== undefined）は、プロジェクト全体の未分類写真が
+        // たまたま0枚でも「このフィルターに一致する写真がありません」を出さない。
+        // フォルダ自体の操作（パンくず・サブフォルダ作成等）は下のフォルダ操作バーで
+        // 常に提供するため、ここでは「表示フィルタそのものが空」の場合だけを対象にする。
         <FilterEmptyState onShowAll={handleShowAllPhases} />
-      ) : folderScopedPhotos.length === 0 && currentSubfolders.length === 0 ? (
-        <FolderEmptyState folderLabel={currentFolderLabel} onBack={handleBackOneLevel} />
       ) : (
         <>
+          {/* フォルダ操作バー（パンくず・サブフォルダ作成・名前変更・削除・すべて選択）は
+              フォルダ中身を表示している間は、中身が空かどうかに関わらず常に表示する
+              （写真0枚 ≠ フォルダ自体が存在しない。空フォルダでもサブフォルダ作成等の
+              操作は必要なため、下のコンテンツ切り替えとは独立してここで描画する） */}
           {showFolderBrowsing && folderView !== undefined && (
             <FolderBreadcrumb
               segments={breadcrumbSegments}
@@ -547,33 +558,42 @@ export function ProjectDetailPage() {
               onSelectAll={() => selectAll(folderScopedPhotos.map((p) => p.id))}
             />
           )}
-          {/* サブフォルダタイル（直下の写真と同じ画面にまとめて表示） */}
-          <SubfolderRow
-            folders={currentSubfolders}
-            photoCountByFolder={photoCountByFolder}
-            onOpenFolder={handleOpenSubfolder}
-          />
-          {folderScopedPhotos.length > 0 && (
-            viewMode === 'ledger' ? (
-              <LedgerView
-                photos={folderScopedPhotos}
-                onPhotoClick={setLightboxPhoto}
-                onCommentChange={setComment}
-                onFloorLocationChange={setFloorLocation}
-                onReorder={reorderPhotos}
+
+          {/* コンテンツ本体：サブフォルダ・写真の有無に応じて切り替える（フォルダ操作バーには影響しない） */}
+          {showFolderBrowsing && folderView !== undefined
+            && folderScopedPhotos.length === 0 && currentSubfolders.length === 0 ? (
+            <FolderEmptyState folderLabel={currentFolderLabel} />
+          ) : (
+            <>
+              {/* サブフォルダタイル（直下の写真と同じ画面にまとめて表示。無ければ何も描画しない） */}
+              <SubfolderRow
+                folders={currentSubfolders}
+                photoCountByFolder={photoCountByFolder}
+                onOpenFolder={handleOpenSubfolder}
               />
-            ) : (
-              <PhotoGrid
-                photos={folderScopedPhotos}
-                onPhotoClick={setLightboxPhoto}
-                onPhotoLongPress={handlePhotoLongPress}
-                selectedIds={selected}
-                onToggle={toggle}
-                onRangeSelect={handleRangeSelect}
-                gridSize={gridSize}
-                onReorder={reorderPhotos}
-              />
-            )
+              {folderScopedPhotos.length > 0 && (
+                viewMode === 'ledger' ? (
+                  <LedgerView
+                    photos={folderScopedPhotos}
+                    onPhotoClick={setLightboxPhoto}
+                    onCommentChange={setComment}
+                    onFloorLocationChange={setFloorLocation}
+                    onReorder={reorderPhotos}
+                  />
+                ) : (
+                  <PhotoGrid
+                    photos={folderScopedPhotos}
+                    onPhotoClick={setLightboxPhoto}
+                    onPhotoLongPress={handlePhotoLongPress}
+                    selectedIds={selected}
+                    onToggle={toggle}
+                    onRangeSelect={handleRangeSelect}
+                    gridSize={gridSize}
+                    onReorder={reorderPhotos}
+                  />
+                )
+              )}
+            </>
           )}
         </>
       )}
@@ -631,12 +651,14 @@ export function ProjectDetailPage() {
         />
       )}
 
-      {/* アップロードモーダル: 表示フィルタとは独立して未分類を初期値とし、モーダル内で選択可能 */}
+      {/* アップロードモーダル: 表示フィルタとは独立して未分類を初期値とし、モーダル内で選択可能。
+          取り込み先フォルダは開いていたフォルダを初期値にする（モーダル内で変更可能） */}
       <PhotoUploadModal
         open={showUpload}
         onClose={() => setShowUpload(false)}
         projectId={projectId ?? ''}
         defaultPhase={null}
+        initialFolderId={uploadInitialFolderId}
       />
 
       {/* 写真を重ねて撮影モーダル */}
@@ -781,15 +803,16 @@ function FilterEmptyState({ onShowAll }: { onShowAll: () => void }) {
   )
 }
 
-function FolderEmptyState({ folderLabel, onBack }: { folderLabel: string; onBack: () => void }) {
+// フォルダの中身が空（写真もサブフォルダも無い）ことだけを示す表示。
+// 戻る・サブフォルダ作成等の操作は常時表示のフォルダ操作バー（FolderBreadcrumb）側に
+// あるため、ここには含めない（「戻る」ボタンの重複を避けるため）。
+function FolderEmptyState({ folderLabel }: { folderLabel: string }) {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[30vh] gap-3 text-center p-4">
-      <p className="text-muted-foreground text-sm">
-        「{folderLabel}」に写真はありません
+    <div className="flex flex-col items-center justify-center min-h-[30vh] gap-1 text-center p-4">
+      <p className="text-sm font-medium">「{folderLabel}」は空です</p>
+      <p className="text-xs text-muted-foreground">
+        上の「サブフォルダ」から整理を始めるか、写真をこのフォルダへ移動してください
       </p>
-      <Button variant="outline" size="sm" onClick={onBack}>
-        フォルダ一覧に戻る
-      </Button>
     </div>
   )
 }

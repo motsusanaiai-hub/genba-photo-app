@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { X, ImagePlus, Upload, TriangleAlert } from 'lucide-react'
+import { X, ImagePlus, Upload, TriangleAlert, Folder as FolderIcon } from 'lucide-react'
 import { usePhotos } from '@/hooks/usePhotos'
 import { usePhotoFolders } from '@/hooks/usePhotoFolders'
 import { Button } from '@/components/ui/button'
+import { FolderPickerSheet } from '@/components/photo/FolderPickerSheet'
+import { FolderFormModal } from '@/components/photo/FolderFormModal'
 import { cn } from '@/lib/utils'
 import { supportsDirectoryDrop, getTopLevelEntries, readEntryRecursively, type DroppedFile } from '@/utils/droppedFolder'
 import type { Phase, PhotoFolder } from '@/types/photo'
@@ -18,6 +20,9 @@ interface Props {
   onClose: () => void
   projectId: string
   defaultPhase: Phase | null
+  // モーダルを開いた時点で未分類タブ内で開いていたフォルダのID（未分類直下ならnull）。
+  // 「取り込み先」の初期値として使う。フェーズ指定取り込みには影響しない。
+  initialFolderId?: string | null
 }
 
 interface SelectedFile {
@@ -29,23 +34,29 @@ interface SelectedFile {
   folderPath: string[]
 }
 
-export function PhotoUploadModal({ open, onClose, projectId, defaultPhase }: Props) {
+export function PhotoUploadModal({ open, onClose, projectId, defaultPhase, initialFolderId = null }: Props) {
   const { uploadPhotosWithPhases } = usePhotos(projectId)
-  const { folders, createFolder } = usePhotoFolders(projectId)
+  const { folders, folderPathLabel, createFolder } = usePhotoFolders(projectId)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const [selected, setSelected] = useState<SelectedFile[]>([])
   const [phase, setPhase] = useState<Phase | null>(null)
+  // 未分類（phase===null）として追加する写真の取り込み先フォルダ。nullは未分類直下。
+  // Windowsフォルダごとドロップした写真はこれより優先してfolderPathから解決される。
+  const [destinationFolderId, setDestinationFolderId] = useState<string | null>(null)
+  const [showFolderPicker, setShowFolderPicker] = useState(false)
+  const [creatingFolderForUpload, setCreatingFolderForUpload] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [warningFilenames, setWarningFilenames] = useState<string[] | null>(null)
 
-  // モーダルを開いた瞬間のページ側フェーズタブを初期選択に反映する。
-  // 開いた後にページ側のタブが変わってもこの選択には追従させない。
+  // モーダルを開いた瞬間のページ側フェーズタブ・開いていたフォルダを初期選択に反映する。
+  // 開いた後にページ側の状態が変わってもこの選択には追従させない。
   useEffect(() => {
     if (open) {
       setPhase(defaultPhase)
+      setDestinationFolderId(initialFolderId)
       setWarningFilenames(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -138,7 +149,7 @@ export function PhotoUploadModal({ open, onClose, projectId, defaultPhase }: Pro
     setUploading(true)
     setProgress({ done: 0, total: selected.length })
 
-    // フォルダパス → フォルダID の解決（未分類として追加される分のみ対象）。
+    // フォルダパス → フォルダID の解決（Windowsフォルダごとドロップした分のみ対象）。
     // 同じパスが複数ファイルに登場しても1回しか解決（作成）しないようキャッシュする。
     const folderIdByPath = new Map<string, string>()
     const uniquePaths = [
@@ -152,12 +163,20 @@ export function PhotoUploadModal({ open, onClose, projectId, defaultPhase }: Pro
       await resolveFolderId(key.split('/'), folderIdByPath)
     }
 
+    // 未分類として追加する写真のフォルダ決定順位：
+    //   1. Windowsフォルダごとドロップした写真（folderPathあり）→ その階層構造を優先
+    //   2. それ以外（通常のファイル選択・カメラロール・単体ドロップ）
+    //      → モーダルで選んだ「取り込み先」（destinationFolderId）
+    // フェーズ指定（施工前/中/後）の写真はフォルダを一切持たない（従来どおり）。
     const uploaded = await uploadPhotosWithPhases(
-      selected.map(({ file, phase, folderPath }) => ({
-        file,
-        phase,
-        folderId: phase === null && folderPath.length > 0 ? folderIdByPath.get(folderPath.join('/')) ?? null : null,
-      })),
+      selected.map(({ file, phase, folderPath }) => {
+        if (phase !== null) return { file, phase, folderId: null }
+        const folderId =
+          folderPath.length > 0
+            ? folderIdByPath.get(folderPath.join('/')) ?? null
+            : destinationFolderId
+        return { file, phase, folderId }
+      }),
       (done, total) => setProgress({ done, total }),
     )
     const failedNames = uploaded.filter((p) => p.format_warning).map((p) => p.original_filename)
@@ -182,6 +201,15 @@ export function PhotoUploadModal({ open, onClose, projectId, defaultPhase }: Pro
     setWarningFilenames(null)
     onClose()
   }
+
+  const handleCreateFolderForUpload = async (name: string) => {
+    const folder = await createFolder(name)
+    setDestinationFolderId(folder.id)
+    setCreatingFolderForUpload(false)
+  }
+
+  const destinationFolder = destinationFolderId ? folders.find((f) => f.id === destinationFolderId) ?? null : null
+  const destinationLabel = destinationFolder ? folderPathLabel(destinationFolder) : '未分類直下'
 
   const countByPhase = (p: Phase | null) => selected.filter((s) => s.phase === p).length
   const folderPaths = [
@@ -334,9 +362,30 @@ export function PhotoUploadModal({ open, onClose, projectId, defaultPhase }: Pro
                     ))}
                   </div>
                   {!phase && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      未分類として追加されます（アップロード後に個別設定も可能）
-                    </p>
+                    <>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        未分類として追加されます（アップロード後に個別設定も可能）
+                      </p>
+                      {/* 取り込み先フォルダ（未分類の時のみ）。Windowsフォルダごとドロップした
+                          写真にはここで選んだフォルダより階層構造が優先される */}
+                      <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5">
+                        <div className="min-w-0 flex items-center gap-2">
+                          <FolderIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-xs text-muted-foreground">取り込み先</p>
+                            <p className="text-sm font-medium truncate">{destinationLabel}</p>
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0"
+                          onClick={() => setShowFolderPicker(true)}
+                        >
+                          変更
+                        </Button>
+                      </div>
+                    </>
                   )}
                 </div>
               )}
@@ -389,6 +438,29 @@ export function PhotoUploadModal({ open, onClose, projectId, defaultPhase }: Pro
           )}
         </div>
       </div>
+
+      {/* 取り込み先フォルダ選択（既存のFolderPickerSheetをそのまま再利用） */}
+      <FolderPickerSheet
+        open={showFolderPicker}
+        folders={folders}
+        folderLabel={folderPathLabel}
+        onClose={() => setShowFolderPicker(false)}
+        onSelect={(folderId) => {
+          setDestinationFolderId(folderId)
+          setShowFolderPicker(false)
+        }}
+        onCreateNew={() => {
+          setShowFolderPicker(false)
+          setCreatingFolderForUpload(true)
+        }}
+      />
+      <FolderFormModal
+        open={creatingFolderForUpload}
+        title="新規フォルダを作成して取り込み先にする"
+        submitLabel="作成して選択"
+        onClose={() => setCreatingFolderForUpload(false)}
+        onSubmit={handleCreateFolderForUpload}
+      />
     </div>
   )
 }
