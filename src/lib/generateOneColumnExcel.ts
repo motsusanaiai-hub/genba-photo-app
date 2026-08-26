@@ -19,13 +19,20 @@ import {
 // ─── レイアウト定数 ───────────────────────────────────────────
 //
 // 「1列3段」= 1ページに写真を縦1列×3段（最大3枚）で大きく配置するレイアウト。
-// Book1.xlsx（A〜K列・1段19行・1ページ57行）の構成に合わせている。
+// 列幅の合計は Book1.xlsx（A〜K列, 108文字=756px=印刷幅7.875in）の設計値を
+// 踏襲しているが、写真エリアは単一列（A列, 75文字 ≈ 525px）にまとめている。
 //
-// 列幅（A〜K, 計108文字=756px=印刷幅7.875in）は、Book1.xlsxの列幅比率
-// （A=1.625, B-F=8.75×5, G=12.375, H=1.75, I=8.75, J=8.75, K=7.5, 合計84.5）
-// を108文字にスケール（×1.2781）したもの。
-//   写真エリア = A〜H（75文字 ≈ 525px）
-//   情報パネル = I〜K（33文字 ≈ 231px）
+// 【2026-08-26】写真エリアをA〜Hの8列結合からA列1列に変更した。
+// twoCellAnchor で複数列にまたがってfrom/toを置くと、列を跨いだ幅は
+// Excelの実際の列幅描画（フォント・DPI・印刷レイアウト計算に依存）で
+// 決まってしまい、環境によって画像の横方向だけが伸縮しアスペクト比が
+// 崩れる不具合が実機（Excel 2019 / Microsoft 365）で確認された
+// （行高は pt→EMU が厳密な換算のため影響を受けず、縦横比の歪みは
+// 常に横方向にのみ発生していた）。写真セルを単一列に収めることで、
+// from/toが必ず同一列内のEMUオフセット差（物理量、環境非依存）だけで
+// 幅が決まるようにし、標準・施工前後テンプレートと同じ安全な構造に揃えた。
+//   写真エリア = A（75文字 ≈ 525px、単一列）
+//   情報パネル = B〜D（33文字 ≈ 231px）
 //
 // 行高 H_ROW=13.5pt（Book1は15pt統一）で、1段=19行×13.5pt=256.5pt、
 // 1ページ=3段=57行=769.5pt ≤ A4印刷可能高さ約805.68pt（11.19in, 余白0.20/0.20/0.25/0.25in）
@@ -34,12 +41,12 @@ import {
 // （写真セルは縦結合のため、自動改ページが結合セルを分割できず段全体が
 //   次ページへ押し出される現象を避けるため、一定の余裕を持たせている）。
 //
-// 情報パネル（I〜K, ROWS_PER_BLOCK行）の行割り:
-//   0行目        : 写真No.（I:K結合）
-//   1行目        : 階数（ I=ラベル, J:K=値 ）
-//   2行目        : 場所（ I=ラベル, J:K=値 ）
-//   3行目        : フェーズ（ I=ラベル, J:K=値 ）
-//   4〜18行目    : コメント（I:K結合, 折り返し）
+// 情報パネル（B〜D, ROWS_PER_BLOCK行）の行割り:
+//   0行目        : 写真No.（B:D結合）
+//   1行目        : 階数（ B=ラベル, C:D=値 ）
+//   2行目        : 場所（ B=ラベル, C:D=値 ）
+//   3行目        : フェーズ（ B=ラベル, C:D=値 ）
+//   4〜18行目    : コメント（B:D結合, 折り返し）
 //
 // 将来「区分」等の項目を追加する場合は、ROW_COMMENT_START / COMMENT_ROWS を
 // 調整し見出し行を増やす（ROWS_PER_BLOCK=19は維持し、コメント行数を減らす）。
@@ -47,15 +54,15 @@ const ROWS_PER_BLOCK  = 19
 const BLOCKS_PER_PAGE = 3
 const H_ROW = 13.5 // 全行共通の行高（pt）
 
-const COL_WIDTHS = [2, 11, 11, 11, 11, 11, 16, 2, 11, 11, 11] // A〜K（合計108文字）
+const COL_WIDTHS = [75, 11, 11, 11] // A(写真)〜D（合計108文字）
 
-const PHOTO_COL_START = 1  // A
-const PHOTO_COL_END   = 8  // H
-const PHOTO_COLS      = 75 // A〜H の合計文字数
+const PHOTO_COL_START = 1 // A
+const PHOTO_COL_END   = 1 // A（単一列。twoCellAnchorのfrom/toが必ず同一列内に収まる）
+const PHOTO_COLS      = 75 // A列の文字数
 
-const INFO_COL_START = 9  // I（ラベル列）
-const INFO_COL_VALUE = 10 // J（値列の開始）
-const INFO_COL_END   = 11 // K
+const INFO_COL_START = 2 // B（ラベル列）
+const INFO_COL_VALUE = 3 // C（値列の開始）
+const INFO_COL_END   = 4 // D
 
 const ROW_NO       = 0
 const ROW_FLOOR    = 1
@@ -63,9 +70,9 @@ const ROW_LOCATION = 2
 const ROW_PHASE    = 3
 const ROW_COMMENT_START = 4
 
-// 写真セル（A〜H, 縦19行結合）は twoCellAnchor の br（右下セル）を正しい
-// 列・行に解決するため、単一の合計px値ではなく列ごと・行ごとの内訳を渡す。
-const PHOTO_COL_WIDTHS_PX = COL_WIDTHS.slice(PHOTO_COL_START - 1, PHOTO_COL_END).map(colWidthToPx)
+// 写真セル（A列, 縦19行結合）はtwoCellAnchorのbr（右下セル）が正しい行に
+// 解決されるよう、行ごとの内訳を渡す（列は単一列のため内訳不要）。
+// 行高はpt→EMUが厳密な換算のため、列幅のような環境依存のズレは生じない。
 const PHOTO_ROW_HEIGHTS_PX = Array(ROWS_PER_BLOCK).fill(rowHeightToPx(H_ROW))
 
 // ─── メイン ──────────────────────────────────────────────────
@@ -124,7 +131,7 @@ export async function buildOneColumnWorkbook(
   return wb
 }
 
-// ─── 写真台帳シート（1列3段, A〜K / 1段19行） ───────────────────
+// ─── 写真台帳シート（1列3段, A〜D / 1段19行） ───────────────────
 
 async function buildOneColumnSheet(
   wb: Workbook,
@@ -207,7 +214,6 @@ async function buildOneColumnSheet(
         col0: PHOTO_COL_START - 1, row0: rNo - 1,
         widthPx:  colWidthToPx(PHOTO_COLS),
         heightPx: rowHeightToPx(ROWS_PER_BLOCK * H_ROW),
-        colWidthsPx: PHOTO_COL_WIDTHS_PX,
         rowHeightsPx: PHOTO_ROW_HEIGHTS_PX,
       })
     }
