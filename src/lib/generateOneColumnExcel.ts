@@ -63,6 +63,11 @@ const ROW_LOCATION = 2
 const ROW_PHASE    = 3
 const ROW_COMMENT_START = 4
 
+// 写真セル（A〜H, 縦19行結合）は twoCellAnchor の br（右下セル）を正しい
+// 列・行に解決するため、単一の合計px値ではなく列ごと・行ごとの内訳を渡す。
+const PHOTO_COL_WIDTHS_PX = COL_WIDTHS.slice(PHOTO_COL_START - 1, PHOTO_COL_END).map(colWidthToPx)
+const PHOTO_ROW_HEIGHTS_PX = Array(ROWS_PER_BLOCK).fill(rowHeightToPx(H_ROW))
+
 // ─── メイン ──────────────────────────────────────────────────
 
 /** 大写真（1×3）のページ一覧を返す（ページ選択UIと生成処理の両方がこれを参照する）。 */
@@ -202,6 +207,8 @@ async function buildOneColumnSheet(
         col0: PHOTO_COL_START - 1, row0: rNo - 1,
         widthPx:  colWidthToPx(PHOTO_COLS),
         heightPx: rowHeightToPx(ROWS_PER_BLOCK * H_ROW),
+        colWidthsPx: PHOTO_COL_WIDTHS_PX,
+        rowHeightsPx: PHOTO_ROW_HEIGHTS_PX,
       })
     }
 

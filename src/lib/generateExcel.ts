@@ -1,5 +1,5 @@
 import { Workbook } from 'exceljs'
-import type { Border, Worksheet } from 'exceljs'
+import type { Border, Worksheet, Anchor } from 'exceljs'
 import type { Photo } from '@/types/photo'
 import type { Project } from '@/types/project'
 import { PHASE_CONFIG } from '@/types/photo'
@@ -36,12 +36,19 @@ export const BOX = { top: THIN, left: THIN, bottom: THIN, right: THIN }
  * 物理サイズを px で明示的に保持する設計にしている。
  * 複数セル結合の場合は widthPx / heightPx に合計値を渡すだけで
  * 以降の計算ロジックを変更せずに対応できる。
+ *
+ * colWidthsPx / rowHeightsPx は、フレームが複数列・複数行にまたがる場合の
+ * 内訳（col0 / row0 から順に、各列幅・各行高さを px で並べたもの）。
+ * twoCellAnchor の br（右下セル）がどの列・行に落ちるかを解決するために使う。
+ * 省略時はフレーム全体を単一列・単一行（widthPx / heightPx 全部）とみなす。
  */
 export interface CellFrame {
   col0: number      // 0-indexed 列インデックス（フレーム左端）
   row0: number      // 0-indexed 行インデックス（フレーム上端）
   widthPx: number   // フレーム幅（px）
   heightPx: number  // フレーム高さ（px）
+  colWidthsPx?: number[]  // フレームを構成する各列のpx幅の内訳（省略時は単一列）
+  rowHeightsPx?: number[] // フレームを構成する各行のpx高さの内訳（省略時は単一行）
 }
 
 /** Excel 列幅（文字数）→ px。Calibri 11pt 基準: 1文字幅 ≈ 7px */
@@ -54,19 +61,53 @@ export function rowHeightToPx(heightPt: number): number {
   return Math.round(heightPt * 96 / 72)
 }
 
+/** ExcelJS の tl / br にそのまま渡せる、セル位置+オフセット形式のアンカー点。 */
+export interface ImageAnchorPoint {
+  nativeCol: number
+  nativeRow: number
+  nativeColOff: number
+  nativeRowOff: number
+}
+
+export interface ImagePlacement {
+  from: ImageAnchorPoint // twoCellAnchor の tl（左上）
+  to: ImageAnchorPoint   // twoCellAnchor の br（右下）
+}
+
 /**
- * セルフレーム内に画像をアスペクト比維持で収めた表示サイズと
- * 中央寄せ用 EMU オフセットを計算する。
+ * 累積px配列上で、フレーム先頭からの相対オフセット(px)が
+ * 何番目のセグメント（列 or 行）の何px目に相当するかを求める。
+ * segmentsPx の合計を超えるoffsetPxは、安全側として最後のセグメントに丸め込む。
+ */
+function resolveSegment(segmentsPx: number[], offsetPx: number): { index: number; offsetInSegmentPx: number } {
+  let remaining = offsetPx
+  for (let i = 0; i < segmentsPx.length; i++) {
+    const segPx = segmentsPx[i]
+    if (i === segmentsPx.length - 1 || remaining < segPx) {
+      return { index: i, offsetInSegmentPx: Math.max(0, remaining) }
+    }
+    remaining -= segPx
+  }
+  return { index: 0, offsetInSegmentPx: 0 }
+}
+
+const EMU_PER_PX = 9525 // 96dpi基準のpx→EMU換算係数（ExcelJS内部と同じ定数）
+
+/**
+ * セルフレーム内に画像をアスペクト比維持で収めた、twoCellAnchor 用の
+ * from（左上）/ to（右下）セル位置+オフセットを計算する。
  *
- * nativeColOff / nativeRowOff は ExcelJS の tl に直接渡す EMU 値。
- * col/row 小数指定は ExcelJS が colWidth(=280000) 倍するため EMU にならないため
- * nativeColOff を使う（型定義にないため as unknown キャストが必要）。
+ * 従来は tl（起点セル）+ ext（絶対pxサイズ）の oneCellAnchor 方式だったが、
+ * これはExcelの印刷時「用紙に合わせる（fitToWidth）」スケーリングに画像だけが
+ * 追従せず、行・列だけが縮小されて画像が隣の枠にはみ出す不具合が実機
+ * （Excel 2019 / Microsoft 365 + Microsoft Print to PDF）で確認されたため、
+ * セル位置基準で伸縮する twoCellAnchor 方式に変更している。
  */
 export function calcImagePlacement(
   frame: CellFrame,
   naturalW: number | null,
   naturalH: number | null,
-): { extW: number; extH: number; nativeColOff: number; nativeRowOff: number } {
+): ImagePlacement {
   const maxW = frame.widthPx  - CELL_PADDING_PX * 2
   const maxH = frame.heightPx - CELL_PADDING_PX * 2
 
@@ -82,10 +123,36 @@ export function calcImagePlacement(
     extH = Math.round(naturalH * ratio)
   }
 
-  const nativeColOff = Math.round(((frame.widthPx - extW) / 2) * 9525)
-  const nativeRowOff = Math.round(((frame.heightPx - extH) / 2) * 9525)
+  // フレーム左上を原点(0,0)とした、中央寄せ後の開始/終了px座標
+  const startXpx = Math.round((frame.widthPx  - extW) / 2)
+  const startYpx = Math.round((frame.heightPx - extH) / 2)
+  const endXpx = startXpx + extW
+  const endYpx = startYpx + extH
 
-  return { extW, extH, nativeColOff, nativeRowOff }
+  const colSegments = frame.colWidthsPx ?? [frame.widthPx]
+  const rowSegments = frame.rowHeightsPx ?? [frame.heightPx]
+
+  const fromCol = resolveSegment(colSegments, startXpx)
+  const toCol   = resolveSegment(colSegments, endXpx)
+  const fromRow = resolveSegment(rowSegments, startYpx)
+  const toRow   = resolveSegment(rowSegments, endYpx)
+
+  const toEmu = (px: number) => Math.round(px * EMU_PER_PX)
+
+  return {
+    from: {
+      nativeCol: frame.col0 + fromCol.index,
+      nativeColOff: toEmu(fromCol.offsetInSegmentPx),
+      nativeRow: frame.row0 + fromRow.index,
+      nativeRowOff: toEmu(fromRow.offsetInSegmentPx),
+    },
+    to: {
+      nativeCol: frame.col0 + toCol.index,
+      nativeColOff: toEmu(toCol.offsetInSegmentPx),
+      nativeRow: frame.row0 + toRow.index,
+      nativeRowOff: toEmu(toRow.offsetInSegmentPx),
+    },
+  }
 }
 
 // ─── ページ分割（共通） ─────────────────────────────────────────
@@ -375,17 +442,11 @@ export async function embedImage(
     if (!base64) return
 
     const imageId = wb.addImage({ base64, extension: 'jpeg' })
-    const { extW, extH, nativeColOff, nativeRowOff } =
-      calcImagePlacement(frame, photo.width, photo.height)
+    const { from, to } = calcImagePlacement(frame, photo.width, photo.height)
 
     ws.addImage(imageId, {
-      tl: {
-        nativeCol:    frame.col0,
-        nativeRow:    frame.row0,
-        nativeColOff,
-        nativeRowOff,
-      } as unknown as { col: number; row: number },
-      ext: { width: extW, height: extH },
+      tl: from as unknown as Anchor,
+      br: to as unknown as Anchor,
       editAs: 'oneCell',
     })
   } catch {
