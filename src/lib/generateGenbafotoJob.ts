@@ -167,13 +167,14 @@ function parseApiSuccessResponse(body: unknown): ApiSuccessResponse | null {
   return { expiresAt: obj.expiresAt, photos }
 }
 
+// UI表示用の固定文言。内部エラー詳細（storage_path・token・signed URL・SQL/Supabaseの
+// エラー内容等）は絶対に混ぜない。ステータスコードから一意に決まる、ユーザー向けの
+// 日本語文言のみを返す。
 function apiErrorMessage(status: number): string {
-  if (status === 401) return '認証が必要です。再度ログインしてからお試しください。'
-  if (status === 403) return '写真の一部にアクセスできませんでした。ページを再読み込みしてからお試しください。'
-  if (status === 409) {
-    return 'Excel高互換出力の準備ができていない写真が含まれています。通信環境を確認して再度お試しください。'
-  }
-  return 'ダウンロードURLの取得に失敗しました。しばらくしてから再度お試しください。'
+  if (status === 401) return 'ログイン状態を確認してください。'
+  if (status === 403) return '対象写真を利用できません。'
+  if (status === 409) return 'クラウド同期が完了していない写真があります。'
+  return '高互換出力の準備に失敗しました。'
 }
 
 /**
@@ -240,7 +241,7 @@ export async function generateGenbafotoJob(
       ok: false,
       reason: 'unsynced',
       unsyncedCount,
-      message: `Excel高互換出力の準備ができていない写真が${unsyncedCount}枚あります。通信環境を確認して再度お試しください。`,
+      message: `クラウド同期が完了していない写真が${unsyncedCount}枚含まれているため、高互換出力できません。`,
     }
   }
 
@@ -293,7 +294,7 @@ export async function generateGenbafotoJob(
       ok: false,
       reason: 'api_error',
       status: response.status,
-      message: 'サーバーからの応答を解析できませんでした。',
+      message: '高互換出力の準備に失敗しました。',
     }
   }
 
@@ -303,7 +304,7 @@ export async function generateGenbafotoJob(
       ok: false,
       reason: 'api_error',
       status: response.status,
-      message: 'サーバーからの応答が不正です。',
+      message: '高互換出力の準備に失敗しました。',
     }
   }
 

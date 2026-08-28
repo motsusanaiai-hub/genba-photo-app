@@ -5,6 +5,7 @@ import { ExportButton } from '@/components/project/ExportButton'
 import { BeforeAfterExportButton } from '@/components/project/BeforeAfterExportButton'
 import { LargePhotoExportButton } from '@/components/project/LargePhotoExportButton'
 import { ZipExportButton } from '@/components/project/ZipExportButton'
+import { GenbafotoExportButton } from '@/components/project/GenbafotoExportButton'
 import { useProjects } from '@/hooks/useProjects'
 import { usePhotos } from '@/hooks/usePhotos'
 import { usePhotoFolders } from '@/hooks/usePhotoFolders'
@@ -30,6 +31,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { ALL_PHASE_KEYS, PHASE_KEY_ACTIVE_CLASS, PHASE_KEY_LABEL, type Phase, type PhaseKey } from '@/types/photo'
 import type { Photo, PhotoFolder } from '@/types/photo'
+import { identityPhotos, pairsToPhotos } from '@/lib/genbafotoPageItems'
 
 type ViewMode = 'grid' | 'ledger' | 'compare'
 
@@ -38,6 +40,22 @@ const PHASE_VISIBILITY_ITEMS: { key: PhaseKey; label: string; activeClass: strin
   label: PHASE_KEY_LABEL[key],
   activeClass: PHASE_KEY_ACTIVE_CLASS[key],
 }))
+
+// Excel高互換出力（GenbafotoExportButton）向け：対象写真・ページ選択は既存Excel出力と
+// 完全に同じ関数（listStandardExcelPages等）をそのまま再利用する。ExcelJSチャンクを
+// 初期バンドルに含めないよう、既存ボタン群と同様に動的importでラップする。
+const listStandardPagesForGenbafoto = async (photos: Photo[]) => {
+  const { listStandardExcelPages } = await import('@/lib/generateExcel')
+  return listStandardExcelPages(photos)
+}
+const listLargePagesForGenbafoto = async (photos: Photo[]) => {
+  const { listOneColumnExcelPages } = await import('@/lib/generateOneColumnExcel')
+  return listOneColumnExcelPages(photos)
+}
+const listBeforeAfterPagesForGenbafoto = async (photos: Photo[]) => {
+  const { listBeforeAfterExcelPages } = await import('@/lib/generateBeforeAfterExcel')
+  return listBeforeAfterExcelPages(photos)
+}
 
 const GRID_SIZES: { value: GridSize; label: string }[] = [
   { value: 'large',  label: '大' },
@@ -395,13 +413,43 @@ export function ProjectDetailPage() {
             {photos.length > 0 && (
               <ExportButton project={project} photos={photos} />
             )}
+            {/* Excel高互換出力（Windows版Excel向け、.genbafotoダウンロード）：標準レイアウト用 */}
+            {photos.length > 0 && (
+              <GenbafotoExportButton
+                project={project}
+                photos={photos}
+                templateType="standard"
+                listPages={listStandardPagesForGenbafoto}
+                pageItemsToPhotos={identityPhotos}
+              />
+            )}
             {/* 大写真（1列3段）テンプレート（写真が1枚以上ある場合のみ表示） */}
             {photos.length > 0 && (
               <LargePhotoExportButton project={project} photos={photos} />
             )}
+            {/* Excel高互換出力：大写真レイアウト用 */}
+            {photos.length > 0 && (
+              <GenbafotoExportButton
+                project={project}
+                photos={photos}
+                templateType="large"
+                listPages={listLargePagesForGenbafoto}
+                pageItemsToPhotos={identityPhotos}
+              />
+            )}
             {/* 施工前後テンプレート（before / after が各1枚以上ある場合のみ表示） */}
             {hasBeforeAfter && (
               <BeforeAfterExportButton project={project} photos={photos} />
+            )}
+            {/* Excel高互換出力：施工前後レイアウト用 */}
+            {hasBeforeAfter && (
+              <GenbafotoExportButton
+                project={project}
+                photos={photos}
+                templateType="beforeAfter"
+                listPages={listBeforeAfterPagesForGenbafoto}
+                pageItemsToPhotos={pairsToPhotos}
+              />
             )}
             {/* ZIP出力（Excel台帳 + 圧縮写真一式、写真が1枚以上ある場合のみ表示） */}
             {photos.length > 0 && (
