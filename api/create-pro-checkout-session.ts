@@ -136,6 +136,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(accessToken)
   if (userError || !userData?.user) {
+    // 原因切り分け用。token / key / message / ユーザー情報は出さない。
+    console.error('[pro-checkout] auth.getUser failed', {
+      status: userError?.status ?? null,
+      code: userError?.code ?? null,
+      name: userError?.name ?? null,
+    })
     res.status(401).json({ error: '認証に失敗しました' })
     return
   }
