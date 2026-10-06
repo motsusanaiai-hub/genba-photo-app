@@ -9,6 +9,7 @@ import { ProjectNewPage } from '@/pages/project/ProjectNewPage'
 import { ProjectDetailPage } from '@/pages/project/ProjectDetailPage'
 import { ProjectEditPage } from '@/pages/project/ProjectEditPage'
 import { CheckoutSuccessPage } from '@/pages/billing/CheckoutSuccessPage'
+import { ProCheckoutSuccessPage } from '@/pages/billing/ProCheckoutSuccessPage'
 
 export const router = createBrowserRouter([
   {
@@ -32,6 +33,7 @@ export const router = createBrowserRouter([
       { path: 'projects/:projectId', element: <ProjectDetailPage /> },
       { path: 'projects/:projectId/edit', element: <ProjectEditPage /> },
       { path: 'billing/success', element: <CheckoutSuccessPage /> },
+      { path: 'billing/pro/success', element: <ProCheckoutSuccessPage /> },
       // Week 5: /settings/templates
     ],
   },

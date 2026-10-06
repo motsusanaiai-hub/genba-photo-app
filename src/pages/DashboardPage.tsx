@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Header } from '@/components/layout/Header'
 import { AdSlot } from '@/components/common/AdSlot'
 import { RemoveAdsButton } from '@/components/billing/RemoveAdsButton'
+import { ProCheckoutButton } from '@/components/billing/ProCheckoutButton'
 import { PROJECT_LIMIT_MESSAGE } from '@/lib/plan'
 
 export function DashboardPage() {
@@ -71,6 +72,9 @@ export function DashboardPage() {
             ))}
           </div>
         )}
+
+        {/* Proプランの購入導線（VITE_PRO_CHECKOUT_ENABLED のビルドのみ。proでは何もrenderしない）。 */}
+        <ProCheckoutButton className="mt-6" />
 
         {/* 広告枠（free限定。ads_removed/proではAdSlot自体が何もrenderしない）。 */}
         <AdSlot className="mt-6" />
