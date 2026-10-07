@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { requireEnv } from '../_lib/requireEnv.js'
 import { createSupabaseAdminClient } from '../_lib/supabaseAdmin.js'
 import { isValidUuid } from '../_lib/isValidUuid.js'
+import { handleProSubscriptionEvent, isProSubscriptionEvent } from '../_lib/proSubscriptionSync.js'
 
 // Stripeの署名検証には生のリクエストボディが必要なため、Vercelの自動bodyパースを無効化する。
 export const config = {
@@ -41,6 +42,7 @@ export function lineItemsMatchAdsRemoved(
  * Stripe Webhook受信エンドポイント。
  *
  * 対象イベント：checkout.session.completed のみ（広告削除・買い切り決済用）。
+ * ※ Pro月額Subscriptionのイベントは署名検証直後に _lib/proSubscriptionSync.ts へ振り分ける。
  * 「Webhookが来たから何でもads_removedにする」実装は行わず、以下を全て満たした
  * 場合のみ public.grant_ads_removed RPC を呼び出す：
  *   1. stripe-signature の検証に成功している
@@ -96,6 +98,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (err) {
     console.error('[stripe-webhook] signature verification failed:', err)
     res.status(400).json({ error: 'signature verification failed' })
+    return
+  }
+
+  // Pro月額Subscription（customer.subscription.* / mode=subscription の checkout）は
+  // 別モジュールで処理する。以降の広告削除（mode=payment）の判定には到達しない。
+  if (isProSubscriptionEvent(event)) {
+    const outcome = await handleProSubscriptionEvent(
+      event,
+      stripe,
+      env.STRIPE_SECRET_KEY,
+      env.VITE_SUPABASE_URL,
+      env.SUPABASE_SERVICE_ROLE_KEY,
+    )
+    res.status(outcome.httpStatus).json(outcome.body)
     return
   }
 
