@@ -39,6 +39,29 @@ export function lineItemsMatchAdsRemoved(
 }
 
 /**
+ * 署名検証に使うWebhook Secretを選ぶ純粋関数。
+ *
+ * staging（Stripe Sandbox）のWebhook endpointは本番と別の署名Secretを持つため、
+ * STRIPE_STAGING_WEBHOOK_SECRET が設定された環境（Vercel上でPreview・ブランチ限定で設定する）
+ * だけそれを使う。ブランチ名やURLでは判定しない。
+ * Productionでは誤設定があっても無視し、必ず STRIPE_WEBHOOK_SECRET を使う
+ * （誤って追加された場合に本番の署名検証がすべて失敗するのを防ぐため）。
+ * 未設定・空文字の場合も STRIPE_WEBHOOK_SECRET にフォールバックする。
+ *
+ * source はログ用の「環境変数名」のみ。Secretの値はログに出さないこと。
+ */
+export function resolveWebhookSecret(input: {
+  vercelEnv: string | undefined
+  stagingWebhookSecret: string | undefined
+  webhookSecret: string
+}): { secret: string; source: 'STRIPE_STAGING_WEBHOOK_SECRET' | 'STRIPE_WEBHOOK_SECRET' } {
+  if (input.vercelEnv !== 'production' && input.stagingWebhookSecret) {
+    return { secret: input.stagingWebhookSecret, source: 'STRIPE_STAGING_WEBHOOK_SECRET' }
+  }
+  return { secret: input.webhookSecret, source: 'STRIPE_WEBHOOK_SECRET' }
+}
+
+/**
  * Stripe Webhook受信エンドポイント。
  *
  * 対象イベント：checkout.session.completed のみ（広告削除・買い切り決済用）。
@@ -92,11 +115,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const stripe = new Stripe(env.STRIPE_SECRET_KEY)
   const rawBody = await readRawBody(req)
 
+  const webhookSecret = resolveWebhookSecret({
+    vercelEnv: process.env.VERCEL_ENV,
+    stagingWebhookSecret: process.env.STRIPE_STAGING_WEBHOOK_SECRET,
+    webhookSecret: env.STRIPE_WEBHOOK_SECRET,
+  })
+
   let event: Stripe.Event
   try {
-    event = stripe.webhooks.constructEvent(rawBody, signature, env.STRIPE_WEBHOOK_SECRET)
+    event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret.secret)
   } catch (err) {
-    console.error('[stripe-webhook] signature verification failed:', err)
+    // err（StripeSignatureVerificationError）は受信payload全文とheaderを持つため、
+    // 全体は出さない。どのSecret（変数名）で検証したかとmessageだけを残す。
+    console.error('[stripe-webhook] signature verification failed', {
+      secretSource: webhookSecret.source,
+      message: err instanceof Error ? err.message : String(err),
+    })
     res.status(400).json({ error: 'signature verification failed' })
     return
   }
