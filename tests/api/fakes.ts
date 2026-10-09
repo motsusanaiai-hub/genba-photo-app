@@ -41,7 +41,7 @@ export function createFakeSupabase(options: {
       })),
     },
     from,
-    rpc: vi.fn(async (name: string) => options.rpc?.[name] ?? { data: null, error: null }),
+    rpc: vi.fn(async (name: string, _args?: unknown) => options.rpc?.[name] ?? { data: null, error: null }),
   }
 
   return { client, eqCalls }

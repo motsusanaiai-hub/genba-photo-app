@@ -97,9 +97,43 @@ export interface SubscriptionSnapshot {
   quantity: number | null
   /** dahlia では Subscription 本体ではなく subscription item 側にある。item 1件のときだけ。 */
   currentPeriodEnd: string | null
+  /**
+   * 期間終了時の解約予約があるか。subscriptions.cancel_at_period_end に保存する。
+   * Stripe の cancel_at_period_end だけでなく、flexible billing mode の Customer Portal が使う
+   * 「cancel_at = 現在の期間終了」の形も含める（isCancelScheduledAtPeriodEnd 参照）。
+   */
   cancelAtPeriodEnd: boolean
   metadataProduct: string | null
   metadataUserId: string | null
+}
+
+/** cancel_at による解約予約を「期間終了時の解約」とみなすstatus（0008 の subscription_status_grants_pro と同じ）。 */
+const CANCEL_AT_SCHEDULABLE_STATUSES = new Set(['active', 'trialing', 'past_due'])
+
+/**
+ * 期間終了時の解約予約があるかを判定する純粋関数。
+ *
+ * - cancel_at_period_end = true … 従来の期間終了時の解約（Stripeの値をそのまま使う）
+ * - cancel_at = 現在の期間終了 … flexible billing mode の Customer Portal は期間終了時の解約を
+ *   cancel_at_period_end ではなく cancel_at で表す（cancel_at_period_end は false のまま）
+ *
+ * 期間途中の任意日付の解約（cancel_at が期間終了と異なる）は対象外として false にする。
+ * canceled_at は「最後に解約操作をした時刻」で解約予定日ではないため使わない。
+ * 解約予約が取り消されると cancel_at は null に戻り、false になる。
+ */
+export function isCancelScheduledAtPeriodEnd(input: {
+  status: string
+  cancelAtPeriodEnd: boolean | null | undefined
+  cancelAt: number | null | undefined
+  currentPeriodEnd: number | null | undefined
+}): boolean {
+  if (input.cancelAtPeriodEnd === true) return true
+  return (
+    CANCEL_AT_SCHEDULABLE_STATUSES.has(input.status) &&
+    typeof input.cancelAt === 'number' &&
+    typeof input.currentPeriodEnd === 'number' &&
+    input.cancelAt === input.currentPeriodEnd
+  )
 }
 
 export function toSubscriptionSnapshot(subscription: Stripe.Subscription): SubscriptionSnapshot {
@@ -118,7 +152,12 @@ export function toSubscriptionSnapshot(subscription: Stripe.Subscription): Subsc
       typeof singleItem?.current_period_end === 'number'
         ? new Date(singleItem.current_period_end * 1000).toISOString()
         : null,
-    cancelAtPeriodEnd: subscription.cancel_at_period_end === true,
+    cancelAtPeriodEnd: isCancelScheduledAtPeriodEnd({
+      status: subscription.status,
+      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      cancelAt: subscription.cancel_at,
+      currentPeriodEnd: singleItem?.current_period_end,
+    }),
     metadataProduct: subscription.metadata?.product ?? null,
     metadataUserId: subscription.metadata?.supabase_user_id ?? null,
   }
