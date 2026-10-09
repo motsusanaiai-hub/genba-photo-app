@@ -8,12 +8,15 @@ import { Header } from '@/components/layout/Header'
 import { AdSlot } from '@/components/common/AdSlot'
 import { RemoveAdsButton } from '@/components/billing/RemoveAdsButton'
 import { ProCheckoutButton } from '@/components/billing/ProCheckoutButton'
-import { PROJECT_LIMIT_MESSAGE } from '@/lib/plan'
+import { ManageSubscriptionCard } from '@/components/billing/ManageSubscriptionCard'
+import { useAuthStore } from '@/store/authStore'
+import { PROJECT_LIMIT_MESSAGE, shouldShowAds } from '@/lib/plan'
 
 export function DashboardPage() {
   const navigate = useNavigate()
   const { projects, canCreateNewProject, removeProject } = useProjects()
   const [showLimitNotice, setShowLimitNotice] = useState(false)
+  const plan = useAuthStore((s) => s.user?.plan ?? 'free')
 
   const handleDelete = async (projectId: string, projectName: string) => {
     const confirmed = window.confirm(
@@ -75,6 +78,10 @@ export function DashboardPage() {
 
         {/* Proプランの購入導線（VITE_PRO_CHECKOUT_ENABLED のビルドのみ。proでは何もrenderしない）。 */}
         <ProCheckoutButton className="mt-6" />
+
+        {/* Pro月額の契約管理（Stripe Customer Portal）。アプリ経由のSubscriptionがある場合だけrenderする。
+            広告削除ボタンが出ない（free以外）ときはこれが最下部になるため、FABと重ならない余白を付ける。 */}
+        <ManageSubscriptionCard className={shouldShowAds(plan) ? 'mt-6' : 'mt-6 mb-24 lg:mb-6'} />
 
         {/* 広告枠（free限定。ads_removed/proではAdSlot自体が何もrenderしない）。 */}
         <AdSlot className="mt-6" />
