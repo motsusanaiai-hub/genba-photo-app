@@ -132,3 +132,22 @@ begin
   perform test_helpers.assert_eq(test_helpers.plan_of(t_owner), 'pro', '元の契約者は pro のまま');
 end
 $$;
+
+-- 既存の広告削除購入者：Webhook の再送などで grant_ads_removed が再実行されても、
+-- 過去の購入日時と ads_removed は変わらない
+-- （テストは1トランザクション内で now() が固定のため、購入日時は過去の値を明示的に置いて確認する）
+do $$
+declare
+  t_user uuid := test_helpers.create_user('ads-regrant@example.com');
+  c_purchased_at constant timestamptz := '2026-09-01 10:00:00+09';
+begin
+  perform public.grant_ads_removed(t_user);
+  update public.profiles set ads_removed_purchased_at = c_purchased_at where id = t_user;
+
+  perform public.grant_ads_removed(t_user);
+  perform test_helpers.assert_eq(test_helpers.plan_of(t_user), 'ads_removed', '再付与しても ads_removed のまま');
+  perform test_helpers.assert_true(
+    (select ads_removed_purchased_at = c_purchased_at from public.profiles where id = t_user),
+    '再付与しても既存の購入日時が保持される');
+end
+$$;

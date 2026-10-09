@@ -130,3 +130,109 @@ describe('Stripe Webhook：広告削除（買い切り）', () => {
     expect(fake.client.rpc).not.toHaveBeenCalled()
   })
 })
+
+// Production以外では test mode の鍵・イベントだけで付与する（Pro分岐と同じ安全柵）。
+describe('Stripe Webhook：広告削除の環境分離', () => {
+  function adsCompletedEvent(livemode: boolean) {
+    return {
+      id: 'evt_ads_env',
+      type: 'checkout.session.completed',
+      livemode,
+      data: {
+        object: {
+          id: 'cs_ads_env',
+          mode: 'payment',
+          payment_status: 'paid',
+          metadata: { product: 'ads_removed', supabase_user_id: USER_ID },
+        },
+      },
+    }
+  }
+
+  function setup(livemode: boolean) {
+    const fake = createFakeSupabase({ rpc: { grant_ads_removed: { data: null, error: null } } })
+    mocks.createSupabaseAdminClient.mockReturnValue(fake.client)
+    mocks.stripe.webhooks.constructEvent.mockReturnValue(adsCompletedEvent(livemode))
+    mocks.stripe.checkout.sessions.listLineItems.mockResolvedValue({
+      data: [{ price: { id: 'price_ads_test' }, quantity: 1 }],
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    return fake
+  }
+
+  it('Previewで livemode=true のイベントは付与しない（400）', async () => {
+    const fake = setup(true)
+    const { res, result } = createResponse()
+    await handler(webhookRequest(), res)
+
+    expect(result.statusCode).toBe(400)
+    expect(mocks.stripe.checkout.sessions.listLineItems).not.toHaveBeenCalled()
+    expect(fake.client.rpc).not.toHaveBeenCalled()
+  })
+
+  it.each(['sk_live_dummy', 'rk_live_dummy'])('Previewで本番用の鍵（%s）なら付与しない（500）', async (key) => {
+    process.env.STRIPE_SECRET_KEY = key
+    const fake = setup(false)
+    const { res, result } = createResponse()
+    await handler(webhookRequest(), res)
+
+    expect(result.statusCode).toBe(500)
+    expect(mocks.stripe.checkout.sessions.listLineItems).not.toHaveBeenCalled()
+    expect(fake.client.rpc).not.toHaveBeenCalled()
+  })
+
+  it('VERCEL_ENV 未設定（ローカル等）でも livemode=true は付与しない', async () => {
+    delete process.env.VERCEL_ENV
+    const fake = setup(true)
+    const { res, result } = createResponse()
+    await handler(webhookRequest(), res)
+
+    expect(result.statusCode).toBe(400)
+    expect(fake.client.rpc).not.toHaveBeenCalled()
+  })
+
+  it('Productionでは本番用の鍵・livemode=true のイベントで従来どおり付与する', async () => {
+    process.env.VERCEL_ENV = 'production'
+    process.env.STRIPE_SECRET_KEY = 'sk_live_dummy'
+    const fake = setup(true)
+    const { res, result } = createResponse()
+    await handler(webhookRequest(), res)
+
+    expect(result.statusCode).toBe(200)
+    expect(fake.client.rpc).toHaveBeenCalledWith('grant_ads_removed', { target_user_id: USER_ID })
+  })
+
+  it('同じ購入のイベントが再送されても grant_ads_removed を呼ぶだけ（権限を外す処理は無い）', async () => {
+    const fake = setup(false)
+    for (let i = 0; i < 2; i++) {
+      const { res, result } = createResponse()
+      await handler(webhookRequest(), res)
+      expect(result.statusCode).toBe(200)
+    }
+    expect(fake.client.rpc.mock.calls.map(([name]) => name)).toEqual(['grant_ads_removed', 'grant_ads_removed'])
+  })
+
+  it('Pro の Subscription イベントは広告削除の判定に入らず、Pro同期へ振り分けられる', async () => {
+    const fake = createFakeSupabase({
+      tables: {
+        subscriptions: { data: null, error: null },
+        subscription_sync_state: { data: null, error: null },
+      },
+    })
+    mocks.createSupabaseAdminClient.mockReturnValue(fake.client)
+    mocks.stripe.webhooks.constructEvent.mockReturnValue({
+      id: 'evt_sub_unrelated',
+      type: 'customer.subscription.updated',
+      livemode: false,
+      data: { object: { id: 'sub_unrelated', metadata: {} } },
+    })
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const { res, result } = createResponse()
+    await handler(webhookRequest(), res)
+
+    expect(result.statusCode).toBe(200)
+    expect(result.body).toEqual({ received: true, skipped: true })
+    expect(mocks.stripe.checkout.sessions.listLineItems).not.toHaveBeenCalled()
+    expect(fake.client.rpc).not.toHaveBeenCalledWith('grant_ads_removed', expect.anything())
+  })
+})

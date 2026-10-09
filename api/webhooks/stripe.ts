@@ -70,6 +70,7 @@ export function resolveWebhookSecret(input: {
  * 場合のみ public.grant_ads_removed RPC を呼び出す：
  *   1. stripe-signature の検証に成功している
  *   2. event.type === 'checkout.session.completed'
+ *   （Production以外では、さらに test mode の鍵かつ livemode=false のイベントであること）
  *   3. session.mode === 'payment'
  *   4. session.payment_status === 'paid'
  *   5. session.metadata.product === 'ads_removed'
@@ -154,6 +155,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 追加する際もこのハンドラの分岐を汚さないよう、ここでは早期returnのみ）。
     res.status(200).json({ received: true })
     return
+  }
+
+  // Production以外では test mode の鍵・イベントだけを扱う（Pro分岐の proSubscriptionSync.ts と同じ安全柵）。
+  // Preview が誤って Live 鍵や本番DBに繋がっていても、テスト決済・Live決済で権限を付与しないため。
+  if (process.env.VERCEL_ENV !== 'production') {
+    if (!/^(sk|rk)_test_/.test(env.STRIPE_SECRET_KEY)) {
+      console.error('[stripe-webhook] config_error: non-test Stripe key outside production, refusing', {
+        eventId: event.id,
+      })
+      res.status(500).json({ error: 'webhook not configured' })
+      return
+    }
+    if (event.livemode !== false) {
+      console.error('[stripe-webhook] rejected: livemode event outside production, refusing', {
+        eventId: event.id,
+      })
+      res.status(400).json({ error: 'livemode event not accepted in this environment' })
+      return
+    }
   }
 
   const session = event.data.object as Stripe.Checkout.Session
