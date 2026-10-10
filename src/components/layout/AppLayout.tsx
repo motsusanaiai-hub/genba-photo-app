@@ -2,9 +2,11 @@ import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { BottomNav } from './BottomNav'
 import { useCloudSync } from '@/hooks/useCloudSync'
+import { usePlanRefreshOnVisible } from '@/hooks/usePlanRefreshOnVisible'
 
 export function AppLayout() {
   useCloudSync()
+  usePlanRefreshOnVisible()
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
