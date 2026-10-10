@@ -52,8 +52,9 @@ function webhookRequest(): VercelRequest {
 beforeEach(() => {
   for (const key of ENV_KEYS) saved[key] = process.env[key]
   process.env.STRIPE_SECRET_KEY = 'sk_test_dummy'
-  process.env.STRIPE_WEBHOOK_SECRET = 'whsec_dummy'
-  delete process.env.STRIPE_STAGING_WEBHOOK_SECRET
+  // Preview（staging）は Staging 用の Secret だけで動く（本番用の STRIPE_WEBHOOK_SECRET は設定しない）
+  delete process.env.STRIPE_WEBHOOK_SECRET
+  process.env.STRIPE_STAGING_WEBHOOK_SECRET = 'whsec_staging_dummy'
   process.env.STRIPE_ADS_REMOVED_PRICE_ID = 'price_ads_test'
   process.env.STRIPE_PRO_PRICE_ID = 'price_pro_test'
   process.env.VITE_SUPABASE_URL = 'https://staging-ref.supabase.co'
@@ -194,6 +195,7 @@ describe('Stripe Webhook：広告削除の環境分離', () => {
   it('Productionでは本番用の鍵・livemode=true のイベントで従来どおり付与する', async () => {
     process.env.VERCEL_ENV = 'production'
     process.env.STRIPE_SECRET_KEY = 'sk_live_dummy'
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_prod_dummy'
     const fake = setup(true)
     const { res, result } = createResponse()
     await handler(webhookRequest(), res)

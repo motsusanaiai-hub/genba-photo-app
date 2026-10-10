@@ -41,24 +41,26 @@ export function lineItemsMatchAdsRemoved(
 /**
  * 署名検証に使うWebhook Secretを選ぶ純粋関数。
  *
- * staging（Stripe Sandbox）のWebhook endpointは本番と別の署名Secretを持つため、
- * STRIPE_STAGING_WEBHOOK_SECRET が設定された環境（Vercel上でPreview・ブランチ限定で設定する）
- * だけそれを使う。ブランチ名やURLでは判定しない。
- * Productionでは誤設定があっても無視し、必ず STRIPE_WEBHOOK_SECRET を使う
- * （誤って追加された場合に本番の署名検証がすべて失敗するのを防ぐため）。
- * 未設定・空文字の場合も STRIPE_WEBHOOK_SECRET にフォールバックする。
+ * 本番とstaging（Stripe Sandbox）のWebhook endpointは別の署名Secretを持つため、環境ごとに
+ * 参照する環境変数を1つに固定する（ブランチ名やURLでは判定しない）：
+ *   - Production       … STRIPE_WEBHOOK_SECRET だけを使う（STRIPE_STAGING_WEBHOOK_SECRET は参照しない）
+ *   - Production以外   … STRIPE_STAGING_WEBHOOK_SECRET だけを使う（Preview・ブランチ限定で設定する）
+ * 該当する変数が未設定・空文字なら secret: null を返し、呼び出し側は署名検証をせずに停止する。
+ * もう一方の環境のSecretへのフォールバックはしない（Previewが本番のSecretに依存しないようにするため）。
  *
  * source はログ用の「環境変数名」のみ。Secretの値はログに出さないこと。
  */
 export function resolveWebhookSecret(input: {
   vercelEnv: string | undefined
   stagingWebhookSecret: string | undefined
-  webhookSecret: string
-}): { secret: string; source: 'STRIPE_STAGING_WEBHOOK_SECRET' | 'STRIPE_WEBHOOK_SECRET' } {
-  if (input.vercelEnv !== 'production' && input.stagingWebhookSecret) {
-    return { secret: input.stagingWebhookSecret, source: 'STRIPE_STAGING_WEBHOOK_SECRET' }
+  webhookSecret: string | undefined
+}):
+  | { secret: string; source: 'STRIPE_STAGING_WEBHOOK_SECRET' | 'STRIPE_WEBHOOK_SECRET' }
+  | { secret: null; source: 'STRIPE_STAGING_WEBHOOK_SECRET' | 'STRIPE_WEBHOOK_SECRET' } {
+  if (input.vercelEnv === 'production') {
+    return { secret: input.webhookSecret || null, source: 'STRIPE_WEBHOOK_SECRET' }
   }
-  return { secret: input.webhookSecret, source: 'STRIPE_WEBHOOK_SECRET' }
+  return { secret: input.stagingWebhookSecret || null, source: 'STRIPE_STAGING_WEBHOOK_SECRET' }
 }
 
 /**
@@ -93,16 +95,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return
   }
 
+  // Webhook Secret は環境ごとに必要な変数が異なるため、ここでは確認せず resolveWebhookSecret で確認する。
   const { values: env, missing } = requireEnv([
     'STRIPE_SECRET_KEY',
-    'STRIPE_WEBHOOK_SECRET',
     'STRIPE_ADS_REMOVED_PRICE_ID',
     'VITE_SUPABASE_URL',
     'SUPABASE_SERVICE_ROLE_KEY',
   ] as const)
 
-  if (missing.length > 0) {
-    console.error('[stripe-webhook] missing env vars:', missing)
+  const webhookSecret = resolveWebhookSecret({
+    vercelEnv: process.env.VERCEL_ENV,
+    stagingWebhookSecret: process.env.STRIPE_STAGING_WEBHOOK_SECRET,
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+  })
+
+  if (missing.length > 0 || webhookSecret.secret === null) {
+    // 変数名だけを出す（値は出さない）。
+    console.error('[stripe-webhook] missing env vars:', [
+      ...missing,
+      ...(webhookSecret.secret === null ? [webhookSecret.source] : []),
+    ])
     res.status(500).json({ error: 'Webhookが現在利用できません（サーバー設定未完了）' })
     return
   }
@@ -115,12 +127,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const stripe = new Stripe(env.STRIPE_SECRET_KEY)
   const rawBody = await readRawBody(req)
-
-  const webhookSecret = resolveWebhookSecret({
-    vercelEnv: process.env.VERCEL_ENV,
-    stagingWebhookSecret: process.env.STRIPE_STAGING_WEBHOOK_SECRET,
-    webhookSecret: env.STRIPE_WEBHOOK_SECRET,
-  })
 
   let event: Stripe.Event
   try {
