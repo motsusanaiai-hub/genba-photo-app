@@ -48,6 +48,7 @@ function setupSupabase(tables: Record<string, { data: unknown; error: unknown }>
       profiles: { data: { plan: 'free', pro_override: false }, error: null },
       subscriptions: { data: [], error: null },
       billing_customers: { data: null, error: null },
+      stripe_pro_prices: { data: { price_id: 'price_pro_test' }, error: null },
       ...tables,
     },
   })
@@ -212,5 +213,61 @@ describe('create-pro-checkout-session：Production の戻り先は本番URLに�
         cancel_url: 'https://genba-photo-app.vercel.app/',
       }),
     )
+  })
+})
+
+describe('create-pro-checkout-session：販売するPriceがDBのPro許可リストにあるか（stripe_pro_prices）', () => {
+  it('登録済みなら従来どおり Checkout Session を作る（照合には STRIPE_PRO_PRICE_ID を使う）', async () => {
+    const fake = setupSupabase()
+    const { res, result } = createResponse()
+    await handler(authorized(), res)
+
+    expect(result.statusCode).toBe(200)
+    expect(fake.eqCalls).toContainEqual({ table: 'stripe_pro_prices', column: 'price_id', value: 'price_pro_test' })
+    expect(mocks.stripe.checkout.sessions.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('未登録なら500で、Stripe の Customer も Checkout Session も作らない', async () => {
+    setupSupabase({ stripe_pro_prices: { data: null, error: null } })
+    const { res, result } = createResponse()
+    await handler(authorized(), res)
+
+    expect(result.statusCode).toBe(500)
+    expect(result.body).toEqual({ error: '決済機能が現在利用できません（サーバー設定不整合）' })
+    expect(mocks.stripeConstructor).not.toHaveBeenCalled()
+    expect(mocks.stripe.customers.create).not.toHaveBeenCalled()
+    expect(mocks.stripe.checkout.sessions.create).not.toHaveBeenCalled()
+    expect(console.error).toHaveBeenCalledWith(
+      '[create-pro-checkout-session] config_error: STRIPE_PRO_PRICE_ID is not registered in stripe_pro_prices',
+      { proPriceId: 'price_pro_test' },
+    )
+  })
+
+  it('照合に失敗したら500で、Stripe の Customer も Checkout Session も作らない', async () => {
+    setupSupabase({ stripe_pro_prices: { data: null, error: { code: '42501', message: 'permission denied' } } })
+    const { res, result } = createResponse()
+    await handler(authorized(), res)
+
+    expect(result.statusCode).toBe(500)
+    expect(mocks.stripeConstructor).not.toHaveBeenCalled()
+    expect(mocks.stripe.customers.create).not.toHaveBeenCalled()
+    expect(mocks.stripe.checkout.sessions.create).not.toHaveBeenCalled()
+    expect(console.error).toHaveBeenCalledWith(
+      '[create-pro-checkout-session] transient_error: stripe_pro_prices lookup failed',
+      { code: '42501', message: 'permission denied' },
+    )
+  })
+
+  it('異常時のログにAPIキー・service_roleキー・トークン・ユーザー情報を含めない', async () => {
+    setupSupabase({ stripe_pro_prices: { data: null, error: null } })
+    const { res } = createResponse()
+    await handler(authorized(), res)
+
+    const logged = JSON.stringify(vi.mocked(console.error).mock.calls)
+    expect(logged).not.toContain('sk_test_dummy')
+    expect(logged).not.toContain('service-role-dummy')
+    expect(logged).not.toContain('Bearer token')
+    expect(logged).not.toContain(USER_ID)
+    expect(logged).not.toContain('user@example.com')
   })
 })

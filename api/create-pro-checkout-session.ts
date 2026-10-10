@@ -13,7 +13,8 @@ import { resolveAppOrigin } from './_lib/appOrigin.js'
  * - 新規購入はサーバー専用の PRO_CHECKOUT_ENABLED === 'true' のときだけ受け付け、それ以外は 403 を返す。
  * - クライアントから受け取るのは Supabase の access token のみ。price / 金額 /
  *   user_id / customer_id 等はリクエストから一切読まない。
- * - Price は必ずサーバー側の STRIPE_PRO_PRICE_ID を使う。
+ * - Price は必ずサーバー側の STRIPE_PRO_PRICE_ID を使う。DBの stripe_pro_prices に登録されていない場合は
+ *   決済を開始しない（登録漏れのまま販売すると、課金されてもProが付与されないため）。
  * - Stripe Customer は1ユーザー1件（billing_customers / link_billing_customer、migration 0008）。
  *   所有関係を確認できない場合はすべて fail closed（Sessionを作成しない）。
  * - Subscription の metadata（product='pro' / supabase_user_id）は、将来のWebhookが
@@ -159,6 +160,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       userId,
     })
     res.status(409).json({ error: 'プラン情報を確認できませんでした。お問い合わせください。' })
+    return
+  }
+
+  // ── 販売するPriceがDBのPro許可リスト（stripe_pro_prices）にあるか ──
+  // 無いまま販売すると、決済は成立するが Webhook の complete_subscription_sync が 'ignored' となり
+  // Proが付与されない（2026-10-10 本番で発生）。Stripe Customer / Checkout を作る前に確認し、
+  // 不一致・照合失敗のどちらも決済を開始しない（fail closed）。
+  const { data: proPrice, error: proPriceError } = await supabaseAdmin
+    .from('stripe_pro_prices')
+    .select('price_id')
+    .eq('price_id', env.STRIPE_PRO_PRICE_ID)
+    .maybeSingle()
+
+  if (proPriceError) {
+    console.error('[create-pro-checkout-session] transient_error: stripe_pro_prices lookup failed', {
+      code: proPriceError.code ?? null,
+      message: proPriceError.message ?? null,
+    })
+    res.status(500).json({ error: '決済機能が現在利用できません。しばらくしてから再度お試しください。' })
+    return
+  }
+  if (!proPrice) {
+    // Price ID は秘密情報ではないため、照合に使った値を残す（設定の食い違いの特定用）。
+    console.error('[create-pro-checkout-session] config_error: STRIPE_PRO_PRICE_ID is not registered in stripe_pro_prices', {
+      proPriceId: env.STRIPE_PRO_PRICE_ID,
+    })
+    res.status(500).json({ error: '決済機能が現在利用できません（サーバー設定不整合）' })
     return
   }
 

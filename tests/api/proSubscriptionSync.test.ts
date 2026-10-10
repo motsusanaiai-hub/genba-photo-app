@@ -194,3 +194,104 @@ describe('handleProSubscriptionEvent：解約予約がDBへ渡る', () => {
     expect(completeArgs).toMatchObject({ p_status: 'active', p_cancel_at_period_end: false })
   })
 })
+
+describe('handleProSubscriptionEvent：決済済みなのにProが付与されない（ignored）場合の異常ログ', () => {
+  const ENV_KEYS = ['STRIPE_PRO_PRICE_ID', 'VERCEL_ENV'] as const
+  const saved: Record<string, string | undefined> = {}
+  const CONFIG_ERROR = '[stripe-webhook:pro] config_error: paid Pro subscription not applied (price not in stripe_pro_prices)'
+
+  beforeEach(() => {
+    for (const key of ENV_KEYS) saved[key] = process.env[key]
+    process.env.STRIPE_PRO_PRICE_ID = 'price_pro_test'
+    process.env.VERCEL_ENV = 'preview'
+    vi.clearAllMocks()
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      if (saved[key] === undefined) delete process.env[key]
+      else process.env[key] = saved[key]
+    }
+    vi.restoreAllMocks()
+  })
+
+  /** 未追跡（新規候補）の customer.subscription.created を、complete の結果を指定して処理する。 */
+  async function runNewCandidate(completeResult: 'applied' | 'ignored') {
+    const fake = createFakeSupabase({
+      tables: {
+        subscriptions: { data: null, error: null },
+        subscription_sync_state: { data: null, error: null },
+      },
+      rpc: {
+        request_subscription_sync: { data: 'requested', error: null },
+        acquire_subscription_sync_lease: {
+          data: [{ result: 'acquired', lease_token: '33333333-3333-4333-8333-333333333333' }],
+          error: null,
+        },
+        complete_subscription_sync: { data: [{ result: completeResult, needs_resync: false }], error: null },
+      },
+    })
+    mocks.createSupabaseAdminClient.mockReturnValue(fake.client)
+    const stripe = { subscriptions: { retrieve: vi.fn().mockResolvedValue(subscription()) } } as unknown as Stripe
+
+    const outcome = await handleProSubscriptionEvent(
+      {
+        id: 'evt_created',
+        type: 'customer.subscription.created',
+        created: PERIOD_END - 30 * 86400,
+        livemode: false,
+        data: { object: { id: 'sub_test', metadata: { product: 'pro', supabase_user_id: USER_ID } } },
+      } as unknown as Stripe.Event,
+      stripe,
+      'sk_test_dummy',
+      'https://staging-ref.supabase.co',
+      'service-role-dummy',
+    )
+    const completeCall = fake.client.rpc.mock.calls.find(([name]) => name === 'complete_subscription_sync')
+    return { outcome, completeArgs: completeCall?.[1] as Record<string, unknown> }
+  }
+
+  function configErrorCalls() {
+    return vi.mocked(console.error).mock.calls.filter(([message]) => message === CONFIG_ERROR)
+  }
+
+  it('allowNewTracking = true なのに ignored なら error ログを残す（応答は従来どおり 200 / ignored）', async () => {
+    const { outcome, completeArgs } = await runNewCandidate('ignored')
+
+    expect(completeArgs).toMatchObject({ p_allow_new_tracking: true, p_price_id: 'price_pro_test' })
+    expect(outcome).toEqual({ httpStatus: 200, body: { received: true, result: 'ignored' } })
+    expect(configErrorCalls()).toHaveLength(1)
+    expect(configErrorCalls()[0][1]).toMatchObject({
+      eventId: 'evt_created',
+      eventType: 'customer.subscription.created',
+      subscriptionId: 'sub_test',
+      priceId: 'price_pro_test',
+      status: 'active',
+    })
+  })
+
+  it('異常ログにユーザーID・APIキー・service_roleキーを含めない', async () => {
+    await runNewCandidate('ignored')
+    const logged = JSON.stringify(configErrorCalls())
+    expect(logged).not.toContain(USER_ID)
+    expect(logged).not.toContain('sk_test_dummy')
+    expect(logged).not.toContain('service-role-dummy')
+  })
+
+  it('applied なら異常ログは出さない（正常な付与は従来どおり）', async () => {
+    const { outcome } = await runNewCandidate('applied')
+    expect(outcome).toEqual({ httpStatus: 200, body: { received: true, result: 'applied' } })
+    expect(configErrorCalls()).toHaveLength(0)
+  })
+
+  it('Webhook側で新規追跡を許可しなかった ignored（Price が STRIPE_PRO_PRICE_ID と違う等）は対象外', async () => {
+    process.env.STRIPE_PRO_PRICE_ID = 'price_other'
+    const { outcome, completeArgs } = await runNewCandidate('ignored')
+    expect(completeArgs).toMatchObject({ p_allow_new_tracking: false })
+    expect(outcome.httpStatus).toBe(200)
+    expect(configErrorCalls()).toHaveLength(0)
+  })
+})
