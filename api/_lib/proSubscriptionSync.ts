@@ -470,6 +470,17 @@ async function runSyncLoop(
       allowNewTracking,
     })
 
+    if (allowNewTracking && completeRow?.result === 'ignored') {
+      // Webhook側の確認（metadata・Price = STRIPE_PRO_PRICE_ID・quantity）は通ったのに、DB側で追跡を
+      // 始めなかった＝ Price が stripe_pro_prices に無い。決済は成立しているのにProが付与されない状態のため、
+      // error として残す（応答は従来どおり 200。ignored は同期済み扱いのため再送では回復しない）。
+      // 回復手順は docs/runbook-pro-subscription-sync.md。ユーザーID等の個人情報は含めない。
+      console.error(
+        `${LOG_PREFIX} config_error: paid Pro subscription not applied (price not in stripe_pro_prices)`,
+        roundCtx,
+      )
+    }
+
     if (completeRow?.result === 'lease_lost' || completeRow?.needs_resync === true) {
       // 同期中に新しい要求が来た／lease が他処理に移った。acquire からやり直して収束させる。
       continue
