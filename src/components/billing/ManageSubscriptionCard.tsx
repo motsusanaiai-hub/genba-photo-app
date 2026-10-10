@@ -29,6 +29,8 @@ interface Props {
  */
 export function ManageSubscriptionCard({ className }: Props) {
   const userId = useAuthStore((s) => s.user?.id ?? null)
+  // plan が変わったとき（決済後の反映・タブ再表示での再取得）にも契約内容を取り直す。
+  const plan = useAuthStore((s) => s.user?.plan ?? null)
   const [subscription, setSubscription] = useState<SubscriptionRow | null>(null)
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -58,7 +60,7 @@ export function ManageSubscriptionCard({ className }: Props) {
     return () => {
       cancelled = true
     }
-  }, [userId])
+  }, [userId, plan])
 
   if (!subscription) return null
 

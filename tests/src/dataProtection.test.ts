@@ -25,6 +25,10 @@ const PLAN_RELATED_FILES = [
   'src/components/billing/RemoveAdsButton.tsx',
   'src/components/billing/ProCheckoutButton.tsx',
   'src/components/billing/ManageSubscriptionCard.tsx',
+  // plan を再取得して表示を更新する（決済後の反映待ち・タブ再表示）
+  'src/lib/planRefresh.ts',
+  'src/hooks/usePlanRefreshOnVisible.ts',
+  'src/pages/billing/ProCheckoutSuccessPage.tsx',
 ]
 
 const DELETION_PATTERNS: Array<[string, RegExp]> = [
