@@ -28,9 +28,9 @@ export const HOUSE_ADS: Record<AdPlacement, HouseAd> = {
   dashboard: {
     advertiser: '株式会社ACE',
     service: 'ACE-DX',
-    headline: '建設現場の「面倒」を、AIでもっと簡単に。',
-    description: '写真管理・工程調整・社内資料検索など、建設業の業務改善をAIでサポート。',
-    cta: 'ACE-DXのサービスを見る →',
+    headline: '現場の面倒を、もっと簡単に。',
+    description: '建設業の経験を活かした、現場目線のAI・業務改善ツールを開発しています。',
+    cta: 'ACE-DXを見る',
     url: 'https://ace-dx.jp/',
   },
 }

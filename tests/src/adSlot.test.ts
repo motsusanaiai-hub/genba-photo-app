@@ -87,6 +87,27 @@ describe('AdSlot：プラン別の表示', () => {
   })
 })
 
+// pro_override（開発者・管理者用の恒久Pro）は DB の recompute_plan が plan='pro' にする（migration 0008）。
+// 画面は plan だけを読み、pro_override 列は authenticated に SELECT 権限も無い（migration 0009）。
+describe('AdSlot：pro_override（恒久Pro）のユーザー', () => {
+  it('pro_override で plan=pro になっているユーザーには広告を表示しない', () => {
+    setPlan('pro')
+    expect(render()).toBe('')
+  })
+
+  it('広告の表示判定は plan だけを見て、pro_override や課金テーブルを参照しない', () => {
+    for (const file of ['src/components/common/AdSlot.tsx', 'src/lib/plan.ts']) {
+      const source = readFileSync(path.join(ROOT, file), 'utf8')
+      expect(source).not.toMatch(/pro_override|subscriptions|billing_customers/)
+    }
+  })
+
+  it('DB で pro_override=true は plan=pro として計算される（recompute_plan の優先順位）', () => {
+    const migration = readFileSync(path.join(ROOT, 'supabase/migrations/0008_pro_subscription_foundation.sql'), 'utf8')
+    expect(migration).toMatch(/when v_pro_override\s+then 'pro'/)
+  })
+})
+
 describe('AdSlot：プラン自動更新との連動', () => {
   it('free → pro（Pro購入の反映）で広告が消える', async () => {
     setPlan('free')
@@ -127,9 +148,9 @@ describe('AdSlot：広告の内容', () => {
 
   it('キャッチコピー・説明文・ボタンの文言が指定どおり', () => {
     const html = text(render())
-    expect(html).toContain('建設現場の「面倒」を、AIでもっと簡単に。')
-    expect(html).toContain('写真管理・工程調整・社内資料検索など、建設業の業務改善をAIでサポート。')
-    expect(html).toContain('ACE-DXのサービスを見る →')
+    expect(html).toContain('現場の面倒を、もっと簡単に。')
+    expect(html).toContain('建設業の経験を活かした、現場目線のAI・業務改善ツールを開発しています。')
+    expect(html).toContain('ACE-DXを見る')
   })
 
   it('画像・外部スクリプト・iframe を使わない', () => {
