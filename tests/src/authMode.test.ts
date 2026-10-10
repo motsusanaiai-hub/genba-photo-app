@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { createClient } from '@supabase/supabase-js'
 import { isValidSupabaseConfig, resolveAuthMode } from '@/lib/authMode'
 
 // 本番ビルドで Supabase の設定が不足していても、モック認証に切り替わらないこと。
@@ -33,12 +34,62 @@ describe('resolveAuthMode', () => {
   })
 })
 
-describe('isValidSupabaseConfig（従来の isSupabaseConfigured と同じ条件）', () => {
-  it('https・placeholder でない・key が21文字以上のときだけ true', () => {
+describe('isValidSupabaseConfig：URL と anon key の検証', () => {
+  it('正常な Supabase URL と21文字以上の key は有効', () => {
     expect(isValidSupabaseConfig(VALID_URL, VALID_KEY)).toBe(true)
+    expect(isValidSupabaseConfig(`${VALID_URL}/`, VALID_KEY)).toBe(true)
+  })
+
+  it('anon key は21文字以上で有効、20文字以下は無効', () => {
     expect(isValidSupabaseConfig(VALID_URL, 'x'.repeat(20))).toBe(false)
     expect(isValidSupabaseConfig(VALID_URL, 'x'.repeat(21))).toBe(true)
   })
+
+  it.each<[string, string]>([
+    ['空文字', ''],
+    ['https:// だけ', 'https://'],
+    ['空白を含む', 'https://exa mple.supabase.co'],
+    ['角括弧が閉じていない', 'https://[example'],
+    ['http://', 'http://example-ref.supabase.co'],
+    ['https 以外のスキーム', 'ftp://example-ref.supabase.co'],
+    ['スキームが無い', 'example-ref.supabase.co'],
+    ['placeholder を含む', 'https://placeholder.supabase.co'],
+    ['ユーザー名を含む', 'https://user@example-ref.supabase.co'],
+    ['ユーザー名とパスワードを含む', 'https://user:pass@example-ref.supabase.co'],
+  ])('URL が%sなら無効', (_label, url) => {
+    expect(isValidSupabaseConfig(url, VALID_KEY)).toBe(false)
+  })
+
+  // 画面が真っ白になる原因（createClient が読み込み時に例外を投げる）を、有効と判定したURLでは起こさないこと。
+  it('有効と判定した URL は createClient で例外にならない／例外になる URL は無効と判定する', () => {
+    const cases = [VALID_URL, `${VALID_URL}/`, 'https://', 'https://exa mple.supabase.co', 'https://[example']
+    for (const url of cases) {
+      let throws = false
+      try {
+        createClient(url, VALID_KEY, { auth: { persistSession: false, autoRefreshToken: false } })
+      } catch {
+        throws = true
+      }
+      if (isValidSupabaseConfig(url, VALID_KEY)) expect(throws, url).toBe(false)
+      if (throws) expect(isValidSupabaseConfig(url, VALID_KEY), url).toBe(false)
+    }
+  })
+})
+
+describe('resolveAuthMode：形式が壊れた URL', () => {
+  it.each(['https://', 'https://exa mple.supabase.co', 'https://user:pass@example-ref.supabase.co'])(
+    '本番ビルドでは %s を misconfigured（設定エラー画面）にする',
+    (url) => {
+      expect(resolveAuthMode({ url, anonKey: VALID_KEY, isProd: true })).toBe('misconfigured')
+    },
+  )
+
+  it.each(['https://', 'https://exa mple.supabase.co', 'https://user:pass@example-ref.supabase.co'])(
+    '開発ビルドでは %s を従来どおりモック認証にする',
+    (url) => {
+      expect(resolveAuthMode({ url, anonKey: VALID_KEY, isProd: false })).toBe('mock')
+    },
+  )
 })
 
 // useAuth はReactフックのため、ここではモック認証の各分岐が misconfigured を先に除外していることを静的に確認する。

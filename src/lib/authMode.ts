@@ -8,12 +8,26 @@
  *
  * 本番ビルドで環境変数の設定漏れがあった場合に、パスワード無しで通るモック認証へ
  * 黙って切り替わらないようにするため、モックは開発ビルド（isProd = false）でだけ許可する。
- * 判定条件（https・placeholder でない・anon key の長さ）は従来の isSupabaseConfigured と同じ。
+ * URL は new URL() で解析できるものだけを有効とする。https:// で始まっていても形式が壊れていると
+ * createClient が読み込み時に例外を投げ、画面が真っ白になるため、ここで misconfigured / mock に振り分ける。
  */
 export type AuthMode = 'supabase' | 'mock' | 'misconfigured'
 
 export function isValidSupabaseConfig(url: string, anonKey: string): boolean {
-  return url.startsWith('https://') && !url.includes('placeholder') && anonKey.length > 20
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return false
+  }
+  return (
+    parsed.protocol === 'https:' &&
+    parsed.hostname !== '' &&
+    parsed.username === '' &&
+    parsed.password === '' &&
+    !url.includes('placeholder') &&
+    anonKey.length > 20
+  )
 }
 
 export function resolveAuthMode(input: { url: string; anonKey: string; isProd: boolean }): AuthMode {
