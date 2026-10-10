@@ -122,14 +122,14 @@ describe('create-checkout-session（広告削除）：Stripe 本番・テスト�
     setupSupabase()
     process.env.VERCEL_ENV = 'production'
     process.env.STRIPE_SECRET_KEY = 'sk_live_dummy'
-    process.env.VERCEL_PROJECT_PRODUCTION_URL = 'genba.example.jp'
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = 'genba-photo-app.vercel.app'
     const { res, result } = createResponse()
-    await handler(authorized({ origin: 'https://genba.example.jp' }), res)
+    await handler(authorized({ origin: 'https://genba-photo-app.vercel.app' }), res)
 
     expect(result.statusCode).toBe(200)
     expect(mocks.stripeConstructor).toHaveBeenCalledWith('sk_live_dummy')
     expect(createdSession().success_url).toBe(
-      'https://genba.example.jp/billing/success?session_id={CHECKOUT_SESSION_ID}',
+      'https://genba-photo-app.vercel.app/billing/success?session_id={CHECKOUT_SESSION_ID}',
     )
   })
 })
@@ -243,5 +243,26 @@ describe('create-checkout-session（広告削除）：Pro新規購入の停止�
 
     expect(result.statusCode).toBe(200)
     expect(createdSession().line_items).toEqual([{ price: 'price_ads_test', quantity: 1 }])
+  })
+})
+
+describe('create-checkout-session（広告削除）：Production の戻り先は本番URLに固定', () => {
+  it.each([
+    ['VERCEL_PROJECT_PRODUCTION_URL 未設定・別ドメインのOrigin', undefined, 'https://evil.example'],
+    ['VERCEL_PROJECT_PRODUCTION_URL が別の値・VERCEL_URL のOrigin', 'genba.example.jp', `https://${DEPLOY_HOST}`],
+  ])('%sでも本番URLへ戻す', async (_label, productionUrl, origin) => {
+    setupSupabase()
+    process.env.VERCEL_ENV = 'production'
+    process.env.STRIPE_SECRET_KEY = 'sk_live_dummy'
+    if (productionUrl === undefined) delete process.env.VERCEL_PROJECT_PRODUCTION_URL
+    else process.env.VERCEL_PROJECT_PRODUCTION_URL = productionUrl
+    const { res, result } = createResponse()
+    await handler(authorized({ origin, host: 'evil.example' }), res)
+
+    expect(result.statusCode).toBe(200)
+    const params = createdSession()
+    expect(params.success_url).toBe('https://genba-photo-app.vercel.app/billing/success?session_id={CHECKOUT_SESSION_ID}')
+    expect(params.cancel_url).toBe('https://genba-photo-app.vercel.app/')
+    expect(params.line_items).toEqual([{ price: 'price_ads_test', quantity: 1 }])
   })
 })

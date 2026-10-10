@@ -338,3 +338,20 @@ describe('create-billing-portal-session：Pro新規購入の停止（PRO_CHECKOU
     expect(result.body).toEqual({ url: 'https://billing.stripe.com/p/session/test_123' })
   })
 })
+
+describe('create-billing-portal-session：Production の戻り先は本番URLに固定', () => {
+  it('VERCEL_PROJECT_PRODUCTION_URL 未設定・VERCEL_URL のOriginでも本番URLへ戻す', async () => {
+    setupSupabase()
+    process.env.VERCEL_ENV = 'production'
+    process.env.STRIPE_SECRET_KEY = 'sk_live_dummy'
+    delete process.env.VERCEL_PROJECT_PRODUCTION_URL
+    const { res, result } = createResponse()
+    await handler(authorizedRequest({ headers: { origin: 'https://genba-abc123.vercel.app' } }), res)
+
+    expect(result.statusCode).toBe(200)
+    expect(mocks.stripe.billingPortal.sessions.create).toHaveBeenCalledWith({
+      customer: 'cus_own',
+      return_url: 'https://genba-photo-app.vercel.app/',
+    })
+  })
+})

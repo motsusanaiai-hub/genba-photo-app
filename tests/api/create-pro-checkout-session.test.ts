@@ -193,3 +193,24 @@ describe('create-pro-checkout-session：新規購入の受付（PRO_CHECKOUT_ENA
     expect(result.statusCode).toBe(405)
   })
 })
+
+describe('create-pro-checkout-session：Production の戻り先は本番URLに固定', () => {
+  it('VERCEL_PROJECT_PRODUCTION_URL 未設定・別ドメインのOriginでも本番URLへ戻す（決済内容は従来どおり）', async () => {
+    setupSupabase()
+    process.env.VERCEL_ENV = 'production'
+    process.env.STRIPE_SECRET_KEY = 'sk_live_dummy'
+    delete process.env.VERCEL_PROJECT_PRODUCTION_URL
+    const { res, result } = createResponse()
+    await handler(createRequest({ headers: { authorization: 'Bearer token', origin: 'https://evil.example' } }), res)
+
+    expect(result.statusCode).toBe(200)
+    expect(mocks.stripe.checkout.sessions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'subscription',
+        line_items: [{ price: 'price_pro_test', quantity: 1 }],
+        success_url: 'https://genba-photo-app.vercel.app/billing/pro/success?session_id={CHECKOUT_SESSION_ID}',
+        cancel_url: 'https://genba-photo-app.vercel.app/',
+      }),
+    )
+  })
+})
