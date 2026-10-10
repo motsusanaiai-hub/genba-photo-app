@@ -27,6 +27,7 @@ import handler from '../../api/webhooks/stripe'
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'
 const ENV_KEYS = [
+  'PRO_CHECKOUT_ENABLED',
   'STRIPE_SECRET_KEY',
   'STRIPE_WEBHOOK_SECRET',
   'STRIPE_STAGING_WEBHOOK_SECRET',
@@ -236,5 +237,39 @@ describe('Stripe Webhook：広告削除の環境分離', () => {
     expect(result.body).toEqual({ received: true, skipped: true })
     expect(mocks.stripe.checkout.sessions.listLineItems).not.toHaveBeenCalled()
     expect(fake.client.rpc).not.toHaveBeenCalledWith('grant_ads_removed', expect.anything())
+  })
+})
+
+describe('Stripe Webhook：Pro新規購入の停止（PRO_CHECKOUT_ENABLED）の影響を受けない', () => {
+  it.each([
+    ['未設定', undefined],
+    ['false', 'false'],
+  ])('PRO_CHECKOUT_ENABLED が%sでも広告削除の購入完了で grant_ads_removed を呼ぶ', async (_label, value) => {
+    if (value === undefined) delete process.env.PRO_CHECKOUT_ENABLED
+    else process.env.PRO_CHECKOUT_ENABLED = value
+    const fake = createFakeSupabase({ rpc: { grant_ads_removed: { data: null, error: null } } })
+    mocks.createSupabaseAdminClient.mockReturnValue(fake.client)
+    mocks.stripe.webhooks.constructEvent.mockReturnValue({
+      id: 'evt_ads_flag',
+      type: 'checkout.session.completed',
+      livemode: false,
+      data: {
+        object: {
+          id: 'cs_test_ads_flag',
+          mode: 'payment',
+          payment_status: 'paid',
+          metadata: { product: 'ads_removed', supabase_user_id: USER_ID },
+        },
+      },
+    })
+    mocks.stripe.checkout.sessions.listLineItems.mockResolvedValue({
+      data: [{ price: { id: 'price_ads_test' }, quantity: 1 }],
+    })
+
+    const { res, result } = createResponse()
+    await handler(webhookRequest(), res)
+
+    expect(result.statusCode).toBe(200)
+    expect(fake.client.rpc).toHaveBeenCalledWith('grant_ads_removed', { target_user_id: USER_ID })
   })
 })

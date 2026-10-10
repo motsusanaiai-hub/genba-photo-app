@@ -32,6 +32,7 @@ const BRANCH_HOST = 'genba-git-staging.vercel.app'
 const DEPLOY_HOST = 'genba-abc123.vercel.app'
 
 const ENV_KEYS = [
+  'PRO_CHECKOUT_ENABLED',
   'STRIPE_SECRET_KEY',
   'STRIPE_ADS_REMOVED_PRICE_ID',
   'VITE_SUPABASE_URL',
@@ -226,5 +227,21 @@ describe('create-checkout-session（広告削除）：決済内容', () => {
     expect(params.line_items).toEqual([{ price: 'price_ads_test', quantity: 1 }])
     expect(params.metadata).toEqual({ supabase_user_id: USER_ID, product: 'ads_removed' })
     expect(params.client_reference_id).toBe(USER_ID)
+  })
+})
+
+describe('create-checkout-session（広告削除）：Pro新規購入の停止（PRO_CHECKOUT_ENABLED）の影響を受けない', () => {
+  it.each([
+    ['未設定', undefined],
+    ['false', 'false'],
+  ])('PRO_CHECKOUT_ENABLED が%sでも従来どおり Session を作る', async (_label, value) => {
+    if (value === undefined) delete process.env.PRO_CHECKOUT_ENABLED
+    else process.env.PRO_CHECKOUT_ENABLED = value
+    setupSupabase()
+    const { res, result } = createResponse()
+    await handler(authorized(), res)
+
+    expect(result.statusCode).toBe(200)
+    expect(createdSession().line_items).toEqual([{ price: 'price_ads_test', quantity: 1 }])
   })
 })

@@ -10,6 +10,7 @@ import { resolveAppOrigin } from './_lib/appOrigin.js'
  * 既存の広告削除（買い切り）用 create-checkout-session.ts とは完全に別のAPIとし、
  * 既存フローのコード・環境変数（STRIPE_ADS_REMOVED_PRICE_ID 等）には一切依存しない。
  *
+ * - 新規購入はサーバー専用の PRO_CHECKOUT_ENABLED === 'true' のときだけ受け付け、それ以外は 403 を返す。
  * - クライアントから受け取るのは Supabase の access token のみ。price / 金額 /
  *   user_id / customer_id 等はリクエストから一切読まない。
  * - Price は必ずサーバー側の STRIPE_PRO_PRICE_ID を使う。
@@ -32,9 +33,25 @@ function isSubscriptionEnded(status: string): boolean {
   return ENDED_SUBSCRIPTION_STATUSES.has(status)
 }
 
+/**
+ * 新規Pro購入をサーバー側で受け付けるか（純粋関数）。
+ * サーバー専用の PRO_CHECKOUT_ENABLED が厳密に 'true' のときだけ許可し、未設定・'false'・その他の値は停止する。
+ * 画面のボタン表示（VITE_PRO_CHECKOUT_ENABLED）とは独立して判定する（APIの直接呼び出しを止めるため）。
+ * 既存契約の管理・更新・解約（Customer Portal / Webhook）はこの判定の対象外。
+ */
+export function isProCheckoutEnabled(value: string | undefined): boolean {
+  return value === 'true'
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method Not Allowed' })
+    return
+  }
+
+  // 新規購入の受付停止中は、認証・DB参照・Stripe呼び出しより前に止める。
+  if (!isProCheckoutEnabled(process.env.PRO_CHECKOUT_ENABLED)) {
+    res.status(403).json({ error: '現在、Proプランの新規お申し込みを受け付けていません。' })
     return
   }
 

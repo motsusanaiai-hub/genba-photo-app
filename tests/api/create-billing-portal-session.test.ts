@@ -30,6 +30,7 @@ const SECRET_KEY = 'sk_test_dummy_secret'
 const SERVICE_ROLE_KEY = 'service-role-dummy'
 
 const ENV_KEYS = [
+  'PRO_CHECKOUT_ENABLED',
   'STRIPE_SECRET_KEY',
   'VITE_SUPABASE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',
@@ -319,5 +320,21 @@ describe('create-billing-portal-session', () => {
       await handler(authorizedRequest(), res)
       expect(result.statusCode).toBe(500)
     })
+  })
+})
+
+describe('create-billing-portal-session：Pro新規購入の停止（PRO_CHECKOUT_ENABLED）の影響を受けない', () => {
+  it.each([
+    ['未設定', undefined],
+    ['false', 'false'],
+  ])('PRO_CHECKOUT_ENABLED が%sでも、既存契約者は契約管理（解約・支払い方法変更）を開ける', async (_label, value) => {
+    if (value === undefined) delete process.env.PRO_CHECKOUT_ENABLED
+    else process.env.PRO_CHECKOUT_ENABLED = value
+    setupSupabase()
+    const { res, result } = createResponse()
+    await handler(authorizedRequest(), res)
+
+    expect(result.statusCode).toBe(200)
+    expect(result.body).toEqual({ url: 'https://billing.stripe.com/p/session/test_123' })
   })
 })

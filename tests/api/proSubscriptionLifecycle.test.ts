@@ -114,7 +114,7 @@ function completeCalls(fake: ReturnType<typeof setupSupabase>) {
     .map(([, args]) => args as Record<string, unknown>)
 }
 
-const ENV_KEYS = ['STRIPE_PRO_PRICE_ID', 'VERCEL_ENV'] as const
+const ENV_KEYS = ['STRIPE_PRO_PRICE_ID', 'VERCEL_ENV', 'PRO_CHECKOUT_ENABLED'] as const
 const saved: Record<string, string | undefined> = {}
 
 beforeEach(() => {
@@ -238,6 +238,29 @@ describe('Pro契約の終了（customer.subscription.deleted）', () => {
     expect([...tables].sort()).toEqual(['subscription_sync_state', 'subscriptions'])
     for (const [name] of fake.client.rpc.mock.calls) {
       expect(SYNC_RPCS.has(name)).toBe(true)
+    }
+  })
+})
+
+describe('Pro新規購入の停止（PRO_CHECKOUT_ENABLED）の影響を受けない', () => {
+  it.each([
+    ['未設定', undefined],
+    ['false', 'false'],
+  ])('PRO_CHECKOUT_ENABLED が%sでも、既存契約の更新（解約予約）・終了は同期される', async (_label, value) => {
+    if (value === undefined) delete process.env.PRO_CHECKOUT_ENABLED
+    else process.env.PRO_CHECKOUT_ENABLED = value
+
+    for (const [type, id, status] of [
+      ['customer.subscription.updated', 'evt_updated_flag', 'active'],
+      ['customer.subscription.deleted', 'evt_deleted_flag', 'canceled'],
+    ] as const) {
+      const fake = setupSupabase({ trackedUserId: USER_ID, hasSyncState: true })
+      const stripe = stripeReturning(stripeSubscription({ status }))
+
+      const outcome = await run(event(type, id, { status }), stripe)
+
+      expect(outcome).toEqual({ httpStatus: 200, body: { received: true, result: 'applied' } })
+      expect(completeCalls(fake)).toEqual([expect.objectContaining({ target_user_id: USER_ID, p_status: status })])
     }
   })
 })

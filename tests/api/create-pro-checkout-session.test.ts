@@ -24,11 +24,12 @@ vi.mock('../../api/_lib/supabaseAdmin.ts', () => ({
   createSupabaseAdminClient: mocks.createSupabaseAdminClient,
 }))
 
-import handler from '../../api/create-pro-checkout-session'
+import handler, { isProCheckoutEnabled } from '../../api/create-pro-checkout-session'
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'
 
 const ENV_KEYS = [
+  'PRO_CHECKOUT_ENABLED',
   'STRIPE_SECRET_KEY',
   'STRIPE_PRO_PRICE_ID',
   'VITE_SUPABASE_URL',
@@ -58,6 +59,7 @@ const authorized = () => createRequest({ headers: { authorization: 'Bearer token
 
 beforeEach(() => {
   for (const key of ENV_KEYS) savedEnv[key] = process.env[key]
+  process.env.PRO_CHECKOUT_ENABLED = 'true'
   process.env.STRIPE_SECRET_KEY = 'sk_test_dummy'
   process.env.STRIPE_PRO_PRICE_ID = 'price_pro_test'
   process.env.VITE_SUPABASE_URL = 'https://staging-ref.supabase.co'
@@ -134,5 +136,60 @@ describe('create-pro-checkout-session（既存機能の回帰）', () => {
     const { res, result } = createResponse()
     await handler(authorized(), res)
     expect(result.statusCode).toBe(409)
+  })
+})
+
+describe('create-pro-checkout-session：新規購入の受付（PRO_CHECKOUT_ENABLED）', () => {
+  it('厳密に "true" のときだけ許可する', () => {
+    expect(isProCheckoutEnabled('true')).toBe(true)
+    for (const value of [undefined, '', 'false', 'TRUE', 'True', '1', 'yes', 'on', ' true', 'true ']) {
+      expect(isProCheckoutEnabled(value)).toBe(false)
+    }
+  })
+
+  it('PRO_CHECKOUT_ENABLED=true なら購入APIを利用でき、Checkout Sessionを作る', async () => {
+    setupSupabase()
+    const { res, result } = createResponse()
+    await handler(authorized(), res)
+    expect(result.statusCode).toBe(200)
+    expect(mocks.stripe.checkout.sessions.create).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['未設定', undefined],
+    ['false', 'false'],
+    ['空文字', ''],
+    ['大文字の TRUE', 'TRUE'],
+    ['1', '1'],
+    ['前後に空白', ' true '],
+  ])('%s なら403で、認証・DB・Stripeに一切触れない', async (_label, value) => {
+    setupSupabase()
+    if (value === undefined) delete process.env.PRO_CHECKOUT_ENABLED
+    else process.env.PRO_CHECKOUT_ENABLED = value
+
+    const { res, result } = createResponse()
+    await handler(authorized(), res)
+
+    expect(result.statusCode).toBe(403)
+    expect(result.body).toEqual({ error: '現在、Proプランの新規お申し込みを受け付けていません。' })
+    expect(mocks.createSupabaseAdminClient).not.toHaveBeenCalled()
+    expect(mocks.stripeConstructor).not.toHaveBeenCalled()
+    expect(mocks.stripe.customers.create).not.toHaveBeenCalled()
+    expect(mocks.stripe.checkout.sessions.create).not.toHaveBeenCalled()
+  })
+
+  it('停止中は、他の設定が不足していても403（購入停止を優先して返す）', async () => {
+    delete process.env.PRO_CHECKOUT_ENABLED
+    delete process.env.STRIPE_PRO_PRICE_ID
+    const { res, result } = createResponse()
+    await handler(authorized(), res)
+    expect(result.statusCode).toBe(403)
+  })
+
+  it('POST以外は停止中でも405（従来どおり）', async () => {
+    delete process.env.PRO_CHECKOUT_ENABLED
+    const { res, result } = createResponse()
+    await handler(createRequest({ method: 'GET' }), res)
+    expect(result.statusCode).toBe(405)
   })
 })
