@@ -1,12 +1,10 @@
 import type { Photo } from '@/types/photo'
 import type { Pair } from '@/lib/generateBeforeAfterExcel'
 
-// GenbafotoExportButton（Excel高互換出力ボタン）が、既存Excel出力と全く同じ
+// ExcelExportButton の Excel直接作成モード（高互換出力）が、標準モードと全く同じ
 // listPages関数（listStandardExcelPages等）から得たページitemsを、
 // generateGenbafotoJobへ渡すPhoto[]へ変換するための小さな純粋関数。
-// ProjectDetailPage.tsx から利用するほか、単体テストからも直接importできるよう
-// 独立したファイルに切り出している（ProjectDetailPage.tsx自体は依存が重く、
-// テストから直接importするのが実用的ではないため）。
+// 単体テストからも直接importできるよう、独立したファイルに切り出している。
 
 /** ページitemsがそのままPhoto[]である場合（標準・大写真）の恒等変換。 */
 export function identityPhotos(items: Photo[]): Photo[] {
