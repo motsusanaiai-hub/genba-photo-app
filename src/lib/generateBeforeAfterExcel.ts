@@ -6,40 +6,56 @@ import {
   type CellFrame,
   type ExcelPageInfo,
   BOX,
+  STANDARD_PAIR_LAYOUT,
   tc,
   buildCoverSheet,
   embedImage,
   triggerDownload,
-  fmtDate,
   colWidthToPx,
   rowHeightToPx,
   buildExcelPages,
 } from '@/lib/generateExcel'
 
-// ─── レイアウト定数（H_NO/H_PHASE/H_COMMENTは標準台帳と同値） ──
-const ROWS_PER_PAIR = 5
-const COL_W         = 28
-const H_NO          = 18
-const H_IMAGE       = 130
-const H_PHASE       = 18
-const H_DATE        = 18
-const H_COMMENT     = 45
+// ─── レイアウト（標準台帳と共通） ───────────────────────────────
+//
+// 施工前後比較は、標準台帳（2列×3段）と同じ写真枠・コメント欄で、左列=施工前・右列=施工後に
+// 並べる。1組の寸法（番号18pt / 写真187pt / コメント63pt、列幅54文字）は標準台帳の定数を
+// そのまま使い、写真の埋め込み（embedImage → calcImagePlacement の twoCellAnchor）も
+// 標準台帳と同じ関数・同じ写真枠で行う（縦横比・アンカーの計算は共通）。
+//
+// 1ページの構成：
+//   見出し行（22pt、左「施工前」・右「施工後」） ← 毎ページ先頭に置く
+//   1組目：番号（「施工前 No.n」「施工後 No.n」） / 写真 / コメント
+//   2組目・3組目：同上
+// 撮影日付は表示しない（以前の専用レイアウトの日付行は廃止）。
+//
+// ※ 高互換出力（Windows Helper 1.0.0）のテンプレートは以前の専用レイアウトのまま。
+const { ROWS_PER_PAIR, COL_W, H_NO, H_IMAGE, H_COMMENT } = STANDARD_PAIR_LAYOUT
+const H_HEADER        = 22 // 見出し行（施工前 / 施工後）
+const PAIRS_PER_PAGE  = 3  // 1ページ3組（写真6枚）
+const ROWS_PER_PAGE   = 1 + PAIRS_PER_PAGE * ROWS_PER_PAIR // 見出し1行 + 3組×3行 = 10行
 
-// ─── ページ分割 ──────────────────────────────────────────────
+// ─── 列構成・印刷倍率 ───────────────────────────────────────────
 //
-// 標準台帳（generateExcel.ts）はCOL_W=54（2列で756px）とすることで
-// fitToWidth の拡大率を約1.0に保っているが、本レイアウトはCOL_W=28（2列で392px）と
-// 印刷幅（0.20in余白時 約756px）よりかなり狭い。fitToWidth に任せると実際の拡大率が
-// 不定になり、手動で入れた改ページと自動改ページが競合して「ペアの途中でページが
-// 分割される」おそれがある。そのため本レイアウトは fitToWidth を使わず scale:100
-// （等倍固定）とし、改ページ位置をpt単位の実測値から確定できるようにしている。
+// 列：A＝余白（空） / B＝施工前（54文字） / C＝施工後（54文字） / D＝余白（空）
 //
-// 余白: left/right 0.20" / top/bottom 0.25"（標準台帳と同じ値）
-//   → 印刷高 = 11.69-0.50 = 11.19in = 806pt (72pt/inch)
-// 1組の高さ = H_NO(18) + H_IMAGE(130) + H_PHASE(18) + H_DATE(18) + H_COMMENT(45) = 229pt
-// PAIRS_PER_PAGE=3: 3組 × 229pt = 687pt ≤ 806pt（約15%の余裕を確保。1ページ目は
-// 列ヘッダー行(22pt)を差し引いても 806-22=784pt ≥ 687pt のため同じ組数で収まる）
-const PAIRS_PER_PAGE = 3
+// 印刷は標準台帳と同じ「用紙の幅に合わせる（縦は自動）」とし、倍率は Excel に自動計算させる。
+// Excel の列幅（文字数指定）は表示倍率（DPI）で実際の幅が数%変わるため、固定倍率では
+// 環境によって右列（施工後）が次のページへはみ出すことがある（97%固定で実機発生）。
+// 「幅に合わせる」なら横2列は環境に関係なく必ず1ページに収まる。
+//
+// ただし施工前後比較は毎ページ見出し行（22pt）が加わり、1ページ = 22 + 3組×268 = 826pt と
+// A4の印刷高（805.68pt）より高い。写真列だけでは自動倍率が約99%になり縦が収まらないため、
+// 左右に空の余白列（各2文字）を足して、自動倍率が必ず 96% 前後以下になるようにする。
+//   100%表示（96 DPI）：A〜D = 14 + 378 + 378 + 14 = 784px → 印刷幅 755.52px → 自動倍率 約96%
+//                        → 826pt × 0.96 = 793pt ≤ 805.68pt（表示倍率が高い環境ほど倍率は下がる）
+// 余白列は値を持たない列のため、印刷範囲（A:D）を明示して必ず倍率計算に含める。
+// 改ページは3組ごと（各ページの最終行＝3組目のコメント行の後）に明示的に入れる
+// （縦を自動にした「幅に合わせる」では手動改ページが有効。大写真台帳と同じ方式）。
+const SPACER_W   = 2 // 左右の余白列（文字数）
+const COL_BEFORE = 2 // B列（1-indexed）
+const COL_AFTER  = 3 // C列（1-indexed）
+const LAST_COL   = 'D'
 
 // ─── ペアリング ────────────────────────────────────────────────
 
@@ -130,18 +146,23 @@ export async function buildBeforeAfterWorkbook(
  */
 async function buildBeforeAfterSheet(wb: Workbook, pairs: Pair[], pairOffset = 0): Promise<void> {
   const ws = wb.addWorksheet('施工前後')
-  ws.columns = [{ width: COL_W }, { width: COL_W }]
+  // A＝余白 / B＝施工前 / C＝施工後 / D＝余白（上の「列構成・印刷倍率」参照）
+  ws.columns = [{ width: SPACER_W }, { width: COL_W }, { width: COL_W }, { width: SPACER_W }]
 
+  // 印刷設定は標準台帳と同じ（A4縦・用紙の幅に合わせる・縦は自動・余白・上下左右中央）
   ws.pageSetup.paperSize   = 9
   ws.pageSetup.orientation = 'portrait'
-  ws.pageSetup.fitToPage   = false
-  ws.pageSetup.scale       = 100
+  ws.pageSetup.fitToPage   = true
+  ws.pageSetup.fitToWidth  = 1
+  ws.pageSetup.fitToHeight = 0
   // 余白（単位: inch）— 標準台帳（generateExcel.ts）と同じ値
   ws.pageSetup.margins = {
     left: 0.20, right: 0.20,
     top:  0.25, bottom: 0.25,
     header: 0.1, footer: 0.1,
   }
+  ws.pageSetup.horizontalCentered = true
+  ws.pageSetup.verticalCentered   = true
 
   if (pairs.length === 0) {
     const c = ws.getCell('A1')
@@ -150,75 +171,78 @@ async function buildBeforeAfterSheet(wb: Workbook, pairs: Pair[], pairOffset = 0
     return
   }
 
-  // 列ヘッダー行（施工前 / 施工後）
-  buildColumnHeaders(ws)
-
   // 最後のページも常に PAIRS_PER_PAGE 組固定になるよう倍数に補完（はみ出し分は空枠）
   const totalPairs = Math.ceil(pairs.length / PAIRS_PER_PAGE) * PAIRS_PER_PAGE
+  const totalPages = totalPairs / PAIRS_PER_PAGE
 
-  for (let i = 0; i < totalPairs; i++) {
-    // pairs配列の範囲外は undefined（空枠として扱う）
-    const pair   = pairs[i] as Pair | undefined
-    const before = pair?.before
-    const after  = pair?.after
-    const rNo = i * ROWS_PER_PAIR + 2  // 1行目がヘッダーのため +2
+  for (let p = 0; p < totalPages; p++) {
+    const pageTop = p * ROWS_PER_PAGE + 1 // 1-indexed：このページの見出し行
 
-    ws.getRow(rNo + 0).height = H_NO
-    ws.getRow(rNo + 1).height = H_IMAGE
-    ws.getRow(rNo + 2).height = H_PHASE
-    ws.getRow(rNo + 3).height = H_DATE
-    ws.getRow(rNo + 4).height = H_COMMENT
+    // 見出し行（毎ページ先頭）
+    buildColumnHeaders(ws, pageTop)
 
-    // 番号行（施工前後の区別を明示）。pairOffset=0（全ページ出力時）は従来のi+1と同じ値になる
-    tc(ws, rNo, 1, before ? `施工前 No.${pairOffset + i + 1}` : '', true, 'center')
-    tc(ws, rNo, 2, after  ? `施工後 No.${pairOffset + i + 1}` : '', true, 'center')
+    for (let k = 0; k < PAIRS_PER_PAGE; k++) {
+      const i = p * PAIRS_PER_PAGE + k
+      // pairs配列の範囲外は undefined（空枠として扱う）
+      const pair   = pairs[i] as Pair | undefined
+      const before = pair?.before
+      const after  = pair?.after
+      const rNo    = pageTop + 1 + k * ROWS_PER_PAIR // 1-indexed：この組の番号行
 
-    // フェーズ行（常に固定表示）
-    tc(ws, rNo+2, 1, before ? '施工前' : '', false, 'center')
-    tc(ws, rNo+2, 2, after  ? '施工後' : '', false, 'center')
+      // 行の高さ（標準台帳と同じ。コメント行も固定高さで、内容に応じた自動調整はしない）
+      ws.getRow(rNo + 0).height = H_NO
+      ws.getRow(rNo + 1).height = H_IMAGE
+      ws.getRow(rNo + 2).height = H_COMMENT
 
-    // 日付行
-    tc(ws, rNo+3, 1, fmtDate(before?.taken_at ?? null), false, 'center')
-    tc(ws, rNo+3, 2, fmtDate(after?.taken_at  ?? null), false, 'center')
+      // 番号行（施工前後の区別を明示）。2ページ目以降も続き番号。
+      // pairOffset=0（全ページ出力時）は「i+1」、1ページ出力時は page.startNo から続く番号になる
+      tc(ws, rNo, COL_BEFORE, before ? `施工前 No.${pairOffset + i + 1}` : '', true, 'center')
+      tc(ws, rNo, COL_AFTER,  after  ? `施工後 No.${pairOffset + i + 1}` : '', true, 'center')
 
-    // コメント行
-    tc(ws, rNo+4, 1, before?.comment ?? '', false, 'left', true)
-    tc(ws, rNo+4, 2, after?.comment  ?? '', false, 'left', true)
+      // コメント行（標準台帳と同じ：横は左寄せ / 縦は中央 / 折り返しあり）
+      tc(ws, rNo + 2, COL_BEFORE, before?.comment ?? '', false, 'left', true)
+      tc(ws, rNo + 2, COL_AFTER,  after?.comment  ?? '', false, 'left', true)
 
-    // 画像行の枠線（画像埋め込み失敗時の見た目保証）
-    ws.getCell(rNo+1, 1).border = BOX
-    ws.getCell(rNo+1, 2).border = BOX
+      // 画像行の枠線（画像埋め込み失敗時の見た目保証）
+      ws.getCell(rNo + 1, COL_BEFORE).border = BOX
+      ws.getCell(rNo + 1, COL_AFTER).border  = BOX
 
-    // 画像行は rNo+1（1-indexed）= rNo（0-indexed）
-    const imageRow0 = rNo
-    const frameBase: Omit<CellFrame, 'col0'> = {
-      row0:     imageRow0,
-      widthPx:  colWidthToPx(COL_W),
-      heightPx: rowHeightToPx(H_IMAGE),
+      // 写真枠は標準台帳と同じ（1列 × 画像行1行、twoCellAnchor）。列の開始位置だけ B / C 列にする。
+      // 画像行 rNo+1（1-indexed）= rNo（0-indexed）、col0 は 0-indexed（B=1, C=2）
+      const frameBase: Omit<CellFrame, 'col0'> = {
+        row0:     rNo,
+        widthPx:  colWidthToPx(COL_W),
+        heightPx: rowHeightToPx(H_IMAGE),
+      }
+      if (before) await embedImage(wb, ws, before, { col0: COL_BEFORE - 1, ...frameBase })
+      if (after)  await embedImage(wb, ws, after,  { col0: COL_AFTER - 1,  ...frameBase })
     }
-    if (before) await embedImage(wb, ws, before, { col0: 0, ...frameBase })
-    if (after)  await embedImage(wb, ws, after,  { col0: 1, ...frameBase })
 
-    // PAIRS_PER_PAGE組ごとに改ページ。最後のページは除く。
-    if ((i + 1) % PAIRS_PER_PAGE === 0 && i < totalPairs - 1) {
-      ws.getRow(rNo + ROWS_PER_PAIR - 1).addPageBreak()
+    // 3組ごとに改ページ（このページの最終行＝3組目のコメント行の後）。最後のページは除く。
+    if (p < totalPages - 1) {
+      ws.getRow(pageTop + ROWS_PER_PAGE - 1).addPageBreak()
     }
   }
+
+  // 印刷範囲を明示（値を持たない余白列 A・D も必ず印刷範囲＝倍率計算に含める）。
+  // ExcelJS は各端の先頭に `$` を付けるだけ（"A1:D30" → "$A1:$D30"）で行が相対参照になるため、
+  // 行側に `$` を付けて渡し、XML上で完全な絶対参照 "$A$1:$D$30" にする。
+  ws.pageSetup.printArea = `A$1:${LAST_COL}$${totalPages * ROWS_PER_PAGE}`
 }
 
-// ─── 列ヘッダー ───────────────────────────────────────────────
+// ─── 見出し行（毎ページ） ─────────────────────────────────────
 
-function buildColumnHeaders(ws: Worksheet): void {
-  ws.getRow(1).height = 22
+function buildColumnHeaders(ws: Worksheet, row: number): void {
+  ws.getRow(row).height = H_HEADER
 
-  const lc = ws.getCell(1, 1)
+  const lc = ws.getCell(row, COL_BEFORE)
   lc.value = '施工前'
   lc.font      = { bold: true, size: 10 }
   lc.alignment = { horizontal: 'center', vertical: 'middle' }
   lc.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E2F3' } }
   lc.border    = BOX
 
-  const rc = ws.getCell(1, 2)
+  const rc = ws.getCell(row, COL_AFTER)
   rc.value = '施工後'
   rc.font      = { bold: true, size: 10 }
   rc.alignment = { horizontal: 'center', vertical: 'middle' }

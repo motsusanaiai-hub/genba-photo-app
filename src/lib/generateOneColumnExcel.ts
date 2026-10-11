@@ -7,7 +7,6 @@ import {
   buildCoverSheet,
   embedImage,
   triggerDownload,
-  phaseLabel,
   colWidthToPx,
   rowHeightToPx,
   buildExcelPages,
@@ -41,14 +40,19 @@ import {
 // （写真セルは縦結合のため、自動改ページが結合セルを分割できず段全体が
 //   次ページへ押し出される現象を避けるため、一定の余裕を持たせている）。
 //
-// 情報パネル（B〜D, ROWS_PER_BLOCK行）の行割り:
+// 情報パネル（B〜D, ROWS_PER_BLOCK行）の行割り（ブロック先頭からの行オフセット）:
 //   0行目        : 写真No.（B:D結合）
 //   1行目        : 階数（ B=ラベル, C:D=値 ）
 //   2行目        : 場所（ B=ラベル, C:D=値 ）
-//   3行目        : フェーズ（ B=ラベル, C:D=値 ）
-//   4〜18行目    : コメント（B:D結合, 折り返し）
+//   3〜18行目    : コメント（B:D結合, 16行, 左寄せ・上下中央・折り返し, 高さ固定）
 //
-// 将来「区分」等の項目を追加する場合は、ROW_COMMENT_START / COMMENT_ROWS を
+// 【Excel出力のフェーズ行の削除】以前は3行目に「フェーズ」（B=ラベル, C:D=値）があり、
+// コメントは4〜18行目（15行）だったが、フェーズはシート名（施工前/施工中/施工後）で
+// 分かるため出力から外し、その1行をコメントに割り当てた。1ブロック19行・行高・
+// 写真セル（A列19行結合）と画像の配置計算・印刷設定は変えていない。
+// ※ 高互換出力（Windows Helper 1.0.0）のテンプレートは従来の行割りのまま。
+//
+// 将来「区分」等の項目を追加する場合は、ROW_COMMENT_START を
 // 調整し見出し行を増やす（ROWS_PER_BLOCK=19は維持し、コメント行数を減らす）。
 const ROWS_PER_BLOCK  = 19
 const BLOCKS_PER_PAGE = 3
@@ -67,8 +71,7 @@ const INFO_COL_END   = 4 // D
 const ROW_NO       = 0
 const ROW_FLOOR    = 1
 const ROW_LOCATION = 2
-const ROW_PHASE    = 3
-const ROW_COMMENT_START = 4
+const ROW_COMMENT_START = 3
 
 // 写真セル（A列, 縦19行結合）はtwoCellAnchorのbr（右下セル）が正しい行に
 // 解決されるよう、行ごとの内訳を渡す（列は単一列のため内訳不要）。
@@ -191,16 +194,11 @@ async function buildOneColumnSheet(
     tc(ws, rNo + ROW_LOCATION, INFO_COL_VALUE, photo?.location ?? '', false, 'center')
     ws.mergeCells(rNo + ROW_LOCATION, INFO_COL_VALUE, rNo + ROW_LOCATION, INFO_COL_END)
 
-    // フェーズ
-    tc(ws, rNo + ROW_PHASE, INFO_COL_START, 'フェーズ', true, 'left')
-    tc(ws, rNo + ROW_PHASE, INFO_COL_VALUE, phaseLabel(photo), false, 'center')
-    ws.mergeCells(rNo + ROW_PHASE, INFO_COL_VALUE, rNo + ROW_PHASE, INFO_COL_END)
-
-    // コメント（上揃え・折り返し）
+    // コメント（横：左寄せ / 縦：中央 / 折り返し。行高は固定のまま）
     const commentCell = ws.getCell(rNo + ROW_COMMENT_START, INFO_COL_START)
     commentCell.value = photo?.comment ?? ''
-    commentCell.font  = { size: 9 }
-    commentCell.alignment = { horizontal: 'left', vertical: 'top', wrapText: true }
+    commentCell.font  = { size: 12 }
+    commentCell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
     commentCell.border = BOX
     ws.mergeCells(rNo + ROW_COMMENT_START, INFO_COL_START, rNo + ROWS_PER_BLOCK - 1, INFO_COL_END)
 
