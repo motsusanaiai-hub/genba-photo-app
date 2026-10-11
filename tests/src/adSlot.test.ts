@@ -228,7 +228,8 @@ describe('既存機能への影響', () => {
   it('広告を使っているのはダッシュボードだけ（撮影・写真整理・Excel・ログイン・決済画面には無い）', () => {
     const users = sourceFiles(path.join(ROOT, 'src'))
       .filter((file) => /from '@\/components\/common\/(AdSlot|HouseAdCard)'/.test(readFileSync(file, 'utf8')))
-      .map((file) => path.relative(ROOT, file))
+      // Windows では path.relative が '\' 区切りを返すため、OS に依存しない '/' 区切りへそろえる
+      .map((file) => path.relative(ROOT, file).split(path.sep).join('/'))
       .sort()
     expect(users).toEqual(['src/components/common/AdSlot.tsx', 'src/pages/DashboardPage.tsx'])
   })
