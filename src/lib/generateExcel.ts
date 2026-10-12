@@ -304,6 +304,10 @@ export function buildCoverSheet(
   const ws = wb.addWorksheet('表紙')
   ws.columns = [{ width: 14 }, { width: 32 }]
 
+  // 用紙をA4縦に明示する（未指定だとExcelはLetterとして扱う）。余白・拡大縮小は既定のまま変えない。
+  ws.pageSetup.paperSize   = 9  // A4
+  ws.pageSetup.orientation = 'portrait'
+
   // タイトル（A1:B1 結合）
   ws.mergeCells('A1:B1')
   const titleCell = ws.getCell('A1')
@@ -436,10 +440,11 @@ export function tc(
   bold: boolean,
   align: 'left' | 'center' | 'right',
   wrap = false,
+  size = 9,
 ): void {
   const cell = ws.getCell(row, col)
   cell.value = value
-  cell.font  = { bold, size: 9 }
+  cell.font  = { bold, size }
   cell.alignment = { horizontal: align, vertical: 'middle', wrapText: wrap }
   cell.border = BOX
 }

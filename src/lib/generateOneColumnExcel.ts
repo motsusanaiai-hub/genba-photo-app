@@ -34,18 +34,22 @@ import {
 //   写真エリア = A（75文字 ≈ 525px、単一列）
 //   情報パネル = B〜D（33文字 ≈ 231px）
 //
-// 行高 H_ROW=13.5pt（Book1は15pt統一）で、1段=19行×13.5pt=256.5pt、
+// 行高：No.・階数・場所の3行は各19.5pt（読みやすさのため12ptの文字を入れる）、
+// コメント16行は 12.75pt と 12pt を交互に並べて合計198pt。
+// 1段=19行=58.5pt+198pt=256.5pt（以前の19行×13.5ptと同じ）、
 // 1ページ=3段=57行=769.5pt ≤ A4印刷可能高さ約805.68pt（11.19in, 余白0.20/0.20/0.25/0.25in）
 // となるよう、約36pt(4.5%)の安全マージンを確保しつつ、Book1.xlsxに近い
-// 高さを使い切るようにしている
+// 高さを使い切るようにしている（1ブロック・1ページの高さ、改ページ位置は変更前から不変）
 // （写真セルは縦結合のため、自動改ページが結合セルを分割できず段全体が
 //   次ページへ押し出される現象を避けるため、一定の余裕を持たせている）。
 //
 // 情報パネル（B〜D, ROWS_PER_BLOCK行）の行割り（ブロック先頭からの行オフセット）:
-//   0行目        : 写真No.（B:D結合）
-//   1行目        : 階数（ B=ラベル, C:D=値 ）
-//   2行目        : 場所（ B=ラベル, C:D=値 ）
-//   3〜18行目    : コメント（B:D結合, 16行, 左寄せ・上下中央・折り返し, 高さ固定）
+//   0行目        : 写真No.（B:D結合, 12pt太字・中央）
+//   1行目        : 階数（ B=ラベル12pt太字, C:D=値12pt ）
+//   2行目        : 場所（ B=ラベル12pt太字, C:D=値12pt ）
+//   3〜18行目    : コメント（B:D結合, 16行, 12pt・左寄せ・上下中央・折り返し, 高さ固定）
+// コメント16行は結合セルなので行ごとの高さの差は見えない。0.75pt（1px）単位の行高の制約から、
+// 合計を256.5ptに保つために12.75ptと12ptを交互に並べている。
 //
 // 【Excel出力のフェーズ行の削除】以前は3行目に「フェーズ」（B=ラベル, C:D=値）があり、
 // コメントは4〜18行目（15行）だったが、フェーズはシート名（施工前/施工中/施工後）で
@@ -58,7 +62,12 @@ import {
 // 調整し見出し行を増やす（ROWS_PER_BLOCK=19は維持し、コメント行数を減らす）。
 const ROWS_PER_BLOCK  = 19
 const BLOCKS_PER_PAGE = 3
-const H_ROW = 13.5 // 全行共通の行高（pt）
+const H_INFO_ROW = 19.5 // No.・階数・場所の行高（pt）
+const COMMENT_ROWS = 16
+// コメント行：12.75pt（17px）と12pt（16px）を交互に8行ずつ＝198pt（264px）
+const COMMENT_ROW_HEIGHTS = Array.from({ length: COMMENT_ROWS }, (_, i) => (i % 2 === 0 ? 12.75 : 12))
+/** 1ブロック（19行）の各行の高さ（pt）。合計256.5pt。 */
+const BLOCK_ROW_HEIGHTS = [H_INFO_ROW, H_INFO_ROW, H_INFO_ROW, ...COMMENT_ROW_HEIGHTS]
 
 const COL_WIDTHS = [75, 11, 11, 11] // A(写真)〜D（合計108文字）
 
@@ -77,8 +86,10 @@ const ROW_COMMENT_START = 3
 
 // 写真セル（A列, 縦19行結合）はtwoCellAnchorのbr（右下セル）が正しい行に
 // 解決されるよう、行ごとの内訳を渡す（列は単一列のため内訳不要）。
+// 行高が均一ではないため、BLOCK_ROW_HEIGHTS から行ごとに換算する（合計は256.5pt=342px）。
 // 行高はpt→EMUが厳密な換算のため、列幅のような環境依存のズレは生じない。
-const PHOTO_ROW_HEIGHTS_PX = Array(ROWS_PER_BLOCK).fill(rowHeightToPx(H_ROW))
+const PHOTO_ROW_HEIGHTS_PX = BLOCK_ROW_HEIGHTS.map(rowHeightToPx)
+const PHOTO_FRAME_HEIGHT_PX = PHOTO_ROW_HEIGHTS_PX.reduce((a, b) => a + b, 0)
 
 // ─── メイン ──────────────────────────────────────────────────
 
@@ -178,21 +189,21 @@ async function buildOneColumnSheet(
 
     // 行の高さ（空枠でも維持）
     for (let r = 0; r < ROWS_PER_BLOCK; r++) {
-      ws.getRow(rNo + r).height = H_ROW
+      ws.getRow(rNo + r).height = BLOCK_ROW_HEIGHTS[r]
     }
 
     // 写真No.
-    tc(ws, rNo + ROW_NO, INFO_COL_START, photo ? `No.${photoOffset + i + 1}` : '', true, 'center')
+    tc(ws, rNo + ROW_NO, INFO_COL_START, photo ? `No.${photoOffset + i + 1}` : '', true, 'center', false, 12)
     ws.mergeCells(rNo + ROW_NO, INFO_COL_START, rNo + ROW_NO, INFO_COL_END)
 
     // 階数
-    tc(ws, rNo + ROW_FLOOR, INFO_COL_START, '階数', true, 'left')
-    tc(ws, rNo + ROW_FLOOR, INFO_COL_VALUE, photo?.floor ?? '', false, 'center')
+    tc(ws, rNo + ROW_FLOOR, INFO_COL_START, '階数', true, 'left', false, 12)
+    tc(ws, rNo + ROW_FLOOR, INFO_COL_VALUE, photo?.floor ?? '', false, 'center', false, 12)
     ws.mergeCells(rNo + ROW_FLOOR, INFO_COL_VALUE, rNo + ROW_FLOOR, INFO_COL_END)
 
     // 場所
-    tc(ws, rNo + ROW_LOCATION, INFO_COL_START, '場所', true, 'left')
-    tc(ws, rNo + ROW_LOCATION, INFO_COL_VALUE, photo?.location ?? '', false, 'center')
+    tc(ws, rNo + ROW_LOCATION, INFO_COL_START, '場所', true, 'left', false, 12)
+    tc(ws, rNo + ROW_LOCATION, INFO_COL_VALUE, photo?.location ?? '', false, 'center', false, 12)
     ws.mergeCells(rNo + ROW_LOCATION, INFO_COL_VALUE, rNo + ROW_LOCATION, INFO_COL_END)
 
     // コメント（横：左寄せ / 縦：中央 / 折り返し。行高は固定のまま）
@@ -212,7 +223,7 @@ async function buildOneColumnSheet(
       await embedImage(wb, ws, photo, {
         col0: PHOTO_COL_START - 1, row0: rNo - 1,
         widthPx:  colWidthToPx(PHOTO_COLS),
-        heightPx: rowHeightToPx(ROWS_PER_BLOCK * H_ROW),
+        heightPx: PHOTO_FRAME_HEIGHT_PX,
         rowHeightsPx: PHOTO_ROW_HEIGHTS_PX,
       })
     }

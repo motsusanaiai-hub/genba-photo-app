@@ -21,7 +21,7 @@ import {
   listStandardExcelPages,
   rowHeightToPx,
 } from '@/lib/generateExcel'
-import { buildOneColumnWorkbook } from '@/lib/generateOneColumnExcel'
+import { buildOneColumnWorkbook, listOneColumnExcelPages } from '@/lib/generateOneColumnExcel'
 import { buildBeforeAfterWorkbook, listBeforeAfterExcelPages } from '@/lib/generateBeforeAfterExcel'
 import type { Photo } from '@/types/photo'
 
@@ -139,7 +139,6 @@ describe('標準台帳（2×3）', () => {
 
 describe('大写真台帳（1×3）', () => {
   const ROWS_PER_BLOCK = 19
-  const H_ROW = 13.5
 
   it('写真シートにフェーズ表示（「フェーズ」ラベルと値）が無い', async () => {
     const wb = await buildOneColumnWorkbook(PROJECT, photos)
@@ -166,26 +165,113 @@ describe('大写真台帳（1×3）', () => {
     })
   })
 
-  it('1ブロック19行・行高13.5pt・写真セル（A列19行結合）・画像アンカーは従来どおり', async () => {
+  // 1ブロック（19行）の各行の高さ（pt）：No.・階数・場所=19.5、コメント16行=12.75と12を交互（合計198）
+  const INFO_H = 19.5
+  const COMMENT_H = Array.from({ length: 16 }, (_, i) => (i % 2 === 0 ? 12.75 : 12))
+  const BLOCK_H = [INFO_H, INFO_H, INFO_H, ...COMMENT_H]
+  const sum = (xs: number[]) => xs.reduce((s, x) => s + x, 0)
+
+  it('No.・階数・場所は12pt（No.と各ラベルは太字、階数・場所の値は通常）で、配置は従来どおり', async () => {
+    const wb = await buildOneColumnWorkbook(PROJECT, photos)
+    const ws = sheet(wb, '施工前')
+    byPhase('before').forEach((_, i) => {
+      const r = i * ROWS_PER_BLOCK + 1
+      expect(ws.getCell(r, 2).font).toMatchObject({ size: 12, bold: true })
+      expect(ws.getCell(r, 2).alignment).toMatchObject({ horizontal: 'center', vertical: 'middle' })
+      expect(ws.getCell(r + 1, 2).font).toMatchObject({ size: 12, bold: true })
+      expect(ws.getCell(r + 1, 2).alignment).toMatchObject({ horizontal: 'left', vertical: 'middle' })
+      expect(ws.getCell(r + 1, 3).font).toMatchObject({ size: 12, bold: false })
+      expect(ws.getCell(r + 1, 3).alignment).toMatchObject({ horizontal: 'center', vertical: 'middle' })
+      expect(ws.getCell(r + 2, 2).font).toMatchObject({ size: 12, bold: true })
+      expect(ws.getCell(r + 2, 3).font).toMatchObject({ size: 12, bold: false })
+      expect(ws.getCell(r + 2, 3).alignment).toMatchObject({ horizontal: 'center', vertical: 'middle' })
+      // コメントは従来どおり12pt
+      expect(ws.getCell(r + 3, 2).font?.size).toBe(12)
+    })
+  })
+
+  it('行高：No.・階数・場所=19.5pt、コメント16行=合計198pt、1ブロック=256.5pt、1ページ（3ブロック）=769.5pt', async () => {
     const wb = await buildOneColumnWorkbook(PROJECT, photos)
     const snap = snapshotSheet(sheet(wb, '施工前'))
-    expect(new Set(Object.values(snap.rowHeights))).toEqual(new Set([H_ROW]))
+    const heights = Object.values(snap.rowHeights)
+    expect(heights.length % ROWS_PER_BLOCK).toBe(0)
+    for (let i = 0; i < heights.length; i += ROWS_PER_BLOCK) {
+      const block = heights.slice(i, i + ROWS_PER_BLOCK)
+      expect(block).toEqual(BLOCK_H)
+      expect(sum(block.slice(0, 3))).toBe(58.5)
+      expect(sum(block.slice(3))).toBe(198)
+      expect(sum(block)).toBe(256.5)
+    }
+    expect(sum(heights.slice(0, ROWS_PER_BLOCK * 3))).toBe(769.5)
+    // 以前の値（全行13.5pt）に戻っていない
+    expect(new Set(heights).has(13.5)).toBe(false)
+  })
+
+  it('1ブロック19行・写真セル（A列19行結合）・画像アンカーは行高配列から計算され、写真は枠内に収まり縦横比が維持される', async () => {
+    const wb = await buildOneColumnWorkbook(PROJECT, photos)
+    const snap = snapshotSheet(sheet(wb, '施工前'))
     const before = byPhase('before')
+    const rowPx = BLOCK_H.map(rowHeightToPx)
+    expect(sum(rowPx)).toBe(rowHeightToPx(256.5)) // 342px。写真枠の高さは変更前と同じ
     expect(snap.images).toHaveLength(before.length)
+    const EMU = 9525
     before.forEach((photo, i) => {
       const r = i * ROWS_PER_BLOCK + 1
       expect(snap.merges).toContain(`A${r}:A${r + 18}`)
       const expected = calcImagePlacement(
-        {
-          col0: 0, row0: r - 1,
-          widthPx: colWidthToPx(75), heightPx: rowHeightToPx(ROWS_PER_BLOCK * H_ROW),
-          rowHeightsPx: Array(ROWS_PER_BLOCK).fill(rowHeightToPx(H_ROW)),
-        },
+        { col0: 0, row0: r - 1, widthPx: colWidthToPx(75), heightPx: sum(rowPx), rowHeightsPx: rowPx },
         photo.width,
         photo.height,
       )
       expectAnchor(snap.images[i], expected)
+
+      // 画像が、そのブロックの写真セル（19行）の内側に収まっている
+      const img = snap.images[i]
+      const top = img.tl.nativeRow - (r - 1)
+      const bottom = img.br.nativeRow - (r - 1)
+      expect(top).toBeGreaterThanOrEqual(0)
+      expect(bottom).toBeLessThanOrEqual(ROWS_PER_BLOCK - 1)
+      expect(img.tl.nativeCol).toBe(0)
+      expect(img.br.nativeCol).toBe(0)
+      const yPx = (row: number, off: number) => sum(rowPx.slice(0, row)) + off / EMU
+      const heightPxActual = yPx(bottom, img.br.nativeRowOff) - yPx(top, img.tl.nativeRowOff)
+      const widthPxActual = (img.br.nativeColOff - img.tl.nativeColOff) / EMU
+      expect(heightPxActual).toBeGreaterThan(0)
+      expect(heightPxActual).toBeLessThanOrEqual(sum(rowPx))
+      expect(widthPxActual).toBeLessThanOrEqual(colWidthToPx(75))
+      if (photo.width && photo.height) {
+        // 縦横比が維持される（丸め誤差の範囲）
+        expect(widthPxActual / heightPxActual).toBeCloseTo(photo.width / photo.height, 1)
+      }
     })
+  })
+
+  it('コメントは長めの文章（100文字程度）でも、16行構成・198ptのコメント欄にそのまま入り、文字数制限などは付かない', async () => {
+    const long100 = 'あ'.repeat(100)
+    const long200 = 'い'.repeat(200)
+    const set = [
+      { ...makePhotoSet()[0], comment: long100 },
+      { ...makePhotoSet()[0], comment: long200 },
+    ]
+    const wb = await buildOneColumnWorkbook(PROJECT, set)
+    const ws = sheet(wb, '施工前')
+    expect(ws.getCell(4, 2).value).toBe(long100)
+    expect(ws.getCell(23, 2).value).toBe(long200)
+    expect(snapshotSheet(ws).merges).toContain('B4:D19')
+  })
+
+  it('1ページ出力（無料版・広告削除版）でも写真番号を引き継ぎ、同じ行高・フォントの1ページ分（3ブロック）になる', async () => {
+    const page = listOneColumnExcelPages(photos)[1] // 施工前の2ページ目（No.4〜6）
+    const wb = await buildOneColumnWorkbook(PROJECT, photos, page)
+    expect(wb.worksheets.map((ws) => ws.name)).toEqual(['表紙', '施工前'])
+    const ws = sheet(wb, '施工前')
+    expect(ws.getCell(1, 2).value).toBe('No.4')
+    expect(ws.getCell(1, 2).font).toMatchObject({ size: 12, bold: true })
+    const snap = snapshotSheet(ws)
+    const heights = Object.values(snap.rowHeights)
+    expect(heights).toHaveLength(ROWS_PER_BLOCK * 3)
+    expect(heights.reduce((a, b) => a + b, 0)).toBe(769.5)
+    expect(snap.rowBreaks).toEqual([])
   })
 
   it('A4縦・中央配置・余白・列幅・改ページ（3枚ごと）が維持されている', async () => {
@@ -198,6 +284,40 @@ describe('大写真台帳（1×3）', () => {
     expect(snap.columnWidths).toEqual([75, 11, 11, 11])
     expect(snap.rowBreaks).toEqual([57, 114])
   })
+})
+
+// ─── 表紙（3種の台帳で共通） ─────────────────────────────────
+
+describe('表紙（標準・大写真・施工前後で共通）', () => {
+  const expectA4Cover = (wb: { getWorksheet: (name: string) => Worksheet | undefined }) => {
+    const snap = snapshotSheet(sheet(wb, '表紙'))
+    expect(snap.pageSetup).toMatchObject({ paperSize: 9, orientation: 'portrait' })
+    // 既存の表紙の見た目は変えない（列幅・結合・行高）
+    expect(snap.columnWidths).toEqual([14, 32])
+    expect(snap.merges).toEqual(['A1:B1'])
+    expect(snap.rowHeights).toEqual({ 1: 50, 2: 10, 3: 24, 4: 24, 5: 24, 6: 24 })
+  }
+
+  it('標準台帳・大写真台帳・施工前後比較の表紙はA4縦', async () => {
+    expectA4Cover(await buildExcelWorkbook(PROJECT, photos))
+    expectA4Cover(await buildOneColumnWorkbook(PROJECT, photos))
+    expectA4Cover(await buildBeforeAfterWorkbook(PROJECT, photos))
+  }, 30000)
+
+  it('1ページ出力でも表紙はA4縦', async () => {
+    expectA4Cover(await buildExcelWorkbook(PROJECT, photos, listStandardExcelPages(photos)[1]))
+  })
+})
+
+// ─── 標準台帳・施工前後の本文（tc()の既定フォントは9ptのまま） ───
+
+describe('大写真台帳以外の本文フォント（変更なし）', () => {
+  it('標準台帳の番号は9pt太字、施工前後比較の番号も9pt太字', async () => {
+    const std = sheet(await buildExcelWorkbook(PROJECT, photos), '施工前')
+    expect(std.getCell(1, 1).font).toMatchObject({ size: 9, bold: true })
+    const ba = sheet(await buildBeforeAfterWorkbook(PROJECT, photos), '施工前後')
+    expect(ba.getCell(2, 2).font).toMatchObject({ size: 9, bold: true })
+  }, 30000)
 })
 
 // ─── 施工前後比較（標準台帳と共通のレイアウト） ──────────────────
