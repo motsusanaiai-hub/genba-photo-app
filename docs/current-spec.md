@@ -115,16 +115,30 @@ interface Photo {
 }
 ```
 
-### 4.2 保存先
-| データ | 保存先 | 備考 |
-|---|---|---|
-| プロジェクト・写真メタ情報・コメント | `localStorage`（zustand persist） | `src/store/photoStore.ts`, `projectStore.ts` |
-| 写真原本 | `IndexedDB`（idb-keyval, key=`photo:{id}`） | `src/lib/photoStorage.ts` |
-| Excel出力用600px圧縮版 | `IndexedDB`（key=`photo:{id}:c:600`） | アップロード時に生成 |
-| 認証情報のみ | Supabase（クラウド） | `isSupabaseConfigured`時のみ実通信、未設定時はlocalStorageモック |
+### 4.2 保存先と端末間同期
+**「すべてのデータがクラウドに保存される」わけではありません。** 写真原本は端末内のみです。実装は `src/lib/cloudSync.ts`、`src/hooks/useCloudSync.ts`、`src/hooks/usePhotos.ts` です（2026-10-12 時点のコードで確認）。
 
-> **【要確認】** 上の表は旧記述です。現在のコードには Supabase へのクラウド同期（`src/lib/cloudSync.ts`、`src/hooks/useCloudSync.ts`、`projects`／`photos` テーブル、`photo-compressed` バケット）が存在します。
-> 同期の仕様全体は本書では未整理のため、別途見直します（STEP 9-B候補）。Excel出力との関係では、Excel直接作成モードは**クラウドに保存済み（`storage_path` あり）の写真のみ**対象です（5.5節）。
+| データ | 保存先 | 別端末への同期 |
+|---|---|---|
+| プロジェクト | Supabase `projects`（削除は論理削除 `deleted_at`）＋ 端末の `localStorage`（zustand persist） | される |
+| 写真メタ情報（コメント・階数・場所・フェーズ・並び順・フォルダ） | Supabase `photos` ＋ 端末の `localStorage` | される |
+| **写真原本** | **端末の `IndexedDB` のみ**（key=`photo:{id}`） | **されない** |
+| 圧縮画像（600px） | 端末の `IndexedDB`（key=`photo:{id}:c:600`）＋ Supabase Storage `photo-compressed`（`{userId}/{photoId}.jpg`） | される（別端末ではこの圧縮画像を使う） |
+| 未分類フォルダ | Supabase `photo_folders` ＋ 端末の `localStorage` | される |
+| Excel出力方式の設定 | 端末の `localStorage` のみ（`genba-excel-export-mode`） | されない |
+| 認証情報 | Supabase Auth（未設定時は localStorage モック） | － |
+
+**同期の動き**
+- 同期は**リアルタイムではありません**。ログイン確定後に1回、クラウドの内容を取得して端末の状態へ反映し、クラウドに無い端末内のデータ（プロジェクト・写真・フォルダ、圧縮画像）をクラウドへ登録します。
+- ログイン後の操作（追加・コメント・並び替え・フェーズ変更・削除）は、その都度クラウドへ反映を試みます。他端末の変更が自動で画面に現れる仕組みはなく、次回のログイン時の同期で取り込まれます。
+- 別端末では、メタ情報と圧縮画像が表示・Excel・ZIP出力に使われます。**写真原本は別端末へ移りません。** 端末の交換・故障・ブラウザのデータ削除で、その端末の原本は失われます（外部バックアップは未実装。将来候補は `docs/feature-priority.md`）。
+- 削除済みプロジェクトに紐づく端末内の写真は、端末内には残りますが同期対象から外れます。
+
+**同期失敗・オフライン時**
+- クラウドへの反映は失敗しても、多くは画面に表示されず（`console.error` のみ）、端末内のデータは残ります。反映が完了しない写真が生じることがあります。
+- ログイン直後の同期が例外で失敗した場合は、次の機会に再試行されます。取得に失敗した場合は端末内の状態のままです。
+- Supabase 未設定の環境では同期は行われません。
+- **Excel直接作成モード（高互換）**は、クラウドに保存済み（`storage_path` あり）の写真だけを対象とします。同期が完了していない写真が含まれると、`create-genbafoto-job` が 409「同期が完了していない写真が含まれています」で全体を拒否します（5.5節）。標準モードは、端末の IndexedDB に無い写真だけ Storage の圧縮画像で補います。
 
 ### 4.3 フェーズ管理
 - 4区分: `before`(施工前) / `during`(施工中) / `after`(施工後) / `null`(未分類)
@@ -261,7 +275,8 @@ interface Photo {
 | 複数選択での一括削除 | `BatchActionBar`はフェーズ変更・未分類化のみ。削除は1枚ずつ |
 | LoginPageのエラーメッセージ改善 | 6節の改善はSignupPageのみ。LoginPageは原因に関わらず固定文言 |
 | パスワードリセット | LoginPageに「パスワードを忘れた方 ›」の表示はあるが`<span>`のみでリンク・機能なし |
-| デバイス間データ同期の整理 | 4.2節の【要確認】参照。コードにはクラウド同期が存在するが、本書では仕様未整理（STEP 9-B候補） |
+| 写真原本の外部バックアップ | 原本は端末の IndexedDB のみで、クラウド・他端末へは同期されない（4.2節）。外部バックアップは未実装・仕様未確定 |
+| 同期失敗の通知 | 多くはコンソールログのみで画面に出ない（4.2節） |
 | `/settings/templates`画面 | ルーティングはコメントアウト状態。カスタムテンプレートの追加・削除は`TemplateDropdown`内で完結しており、専用画面は未着手 |
 | 報告書型Excelテンプレート | `docs/week8-candidates.md`の②。追加入力項目（部位・状況等）の設計が必要 |
 | フラクショナルインデックスでの並べ替え | `docs/system-design.md`記載の中間値計算は未実装。現状は隣接swapのみ |
@@ -278,7 +293,7 @@ interface Photo {
 | 高 | LoginPageのエラーメッセージ改善 | SignupPageと同パターン（`AuthError.code`分岐）を適用するだけ。実装コスト低 |
 | 中 | パスワードリセット機能 | Supabaseの`resetPasswordForEmail`を使った実装が必要。UIの導線は用意済み |
 | 中 | 報告書型Excelテンプレート | 需要はあるが「部位」「状況」等の入力項目設計が必要（データモデル変更を伴う） |
-| 中 | デバイス間データ同期の仕様整理・案内 | 現行コードの同期仕様を確認して本書に反映する（4.2節の【要確認】） |
+| 中 | 写真原本の外部バックアップ対応 | 未実装・仕様未確定。第一候補は端末の写真フォルダ保存＋Googleフォト、第二候補は Google Drive API（`docs/feature-priority.md`）。Helper 1.1.0 と Web 新レイアウトの正式リリース後に検討 |
 | 低 | HEIC非対応環境向けの案内文言 | 表示できない場合に代替アイコン＋説明を出す程度の小改修 |
 | 低〜中 | PDF出力 | `docs/feature-priority.md` P1。Excel不要な現場向けの提出書類完結 |
 | 低 | 工事看板挿入 | Canvas APIで写真に工事名・日付を合成。差別化要素だが優先度は低 |

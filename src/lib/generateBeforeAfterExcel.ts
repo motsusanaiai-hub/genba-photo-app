@@ -30,7 +30,8 @@ import {
 //   2組目・3組目：同上
 // 撮影日付は表示しない（以前の専用レイアウトの日付行は廃止）。
 //
-// ※ 高互換出力（Windows Helper 1.0.0）のテンプレートは以前の専用レイアウトのまま。
+// ※ 高互換出力（Windows Helper 1.1.0）のテンプレートも同じレイアウト（日付行なし）。
+//   Helper 1.0.0 のテンプレートだけが以前の専用レイアウト（日付行あり）のまま。
 const { ROWS_PER_PAIR, COL_W, H_NO, H_IMAGE, H_COMMENT } = STANDARD_PAIR_LAYOUT
 const H_HEADER        = 22 // 見出し行（施工前 / 施工後）
 const PAIRS_PER_PAGE  = 3  // 1ページ3組（写真6枚）

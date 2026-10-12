@@ -199,7 +199,7 @@ Excel生成   → sort_order ASC で並べる
   ↓
 プロジェクトの写真を sort_order ASC で全件取得
   ↓
-各写真の Storage URL から画像データを取得
+各写真の画像データを取得（端末の IndexedDB を優先し、無い場合は Storage の圧縮画像。原本は端末内のみ）
   ↓
 exceljs でブックを生成
   ├── 表紙シートを作成
