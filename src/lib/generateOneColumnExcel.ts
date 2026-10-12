@@ -1,6 +1,7 @@
 import { Workbook } from 'exceljs'
 import type { Photo } from '@/types/photo'
 import type { Project } from '@/types/project'
+import { excelLedgerFileName } from '@/lib/excelFileName'
 import {
   BOX,
   tc,
@@ -92,8 +93,7 @@ export async function generateOneColumnExcel(
 ): Promise<void> {
   const wb = await buildOneColumnWorkbook(project, photos, page)
   const buffer = await wb.xlsx.writeBuffer()
-  const safeName = project.name.replace(/[\\/:*?"<>|]/g, '_')
-  triggerDownload(buffer as ArrayBuffer, `${safeName}_工事写真台帳(大判).xlsx`)
+  triggerDownload(buffer as ArrayBuffer, excelLedgerFileName(project.name, 'large'))
 }
 
 /**

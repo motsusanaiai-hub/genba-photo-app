@@ -3,7 +3,7 @@ import { Columns2, FileSpreadsheet, Image as ImageIcon, Loader2, AlertCircle } f
 import { Button } from '@/components/ui/button'
 import { ExcelPageSelectModal } from './ExcelPageSelectModal'
 import { useExcelPageExport } from '@/hooks/useExcelPageExport'
-import { identityPhotos, pairsToPhotos } from '@/lib/genbafotoPageItems'
+import { identityPhotos, pairsToPhotos, toGenbafotoPage } from '@/lib/genbafotoPageItems'
 import type { ExcelPageInfo } from '@/lib/generateExcel'
 import type { Pair } from '@/lib/generateBeforeAfterExcel'
 import type { GenbafotoTemplateType } from '@/lib/generateGenbafotoJob'
@@ -130,10 +130,12 @@ function LayoutExportButton<T>({
         return
       }
 
-      // Excel直接作成モード（高互換出力）：既存の .genbafoto 生成処理をそのまま使う
+      // Excel直接作成モード（高互換出力）：既存の .genbafoto 生成処理をそのまま使う。
+      // 選択ページ出力ではページ情報（groupIndex / startNo / endNo）も渡し、番号を startNo から振って
+      // .genbafoto に page を付ける（Helper 1.1.0 が対象フェーズのシートだけを残す）。全ページ出力では渡さない。
       const targetPhotos = page ? config.pageItemsToPhotos(page.items) : photos
       const { generateGenbafotoJob } = await import('@/lib/generateGenbafotoJob')
-      const result = await generateGenbafotoJob(project, targetPhotos, config.templateType)
+      const result = await generateGenbafotoJob(project, targetPhotos, config.templateType, page ? toGenbafotoPage(page) : undefined)
       if (result.ok) {
         showMessage(
           {

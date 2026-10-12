@@ -81,7 +81,8 @@ describe('既存処理との関係（静的確認）', () => {
     expect(button.match(/useExcelPageExport</g)).toHaveLength(1)
     const generate = button.slice(button.indexOf('useExcelPageExport<T>('))
     expect(generate).toMatch(/mode === 'standard'[\s\S]*config\.generateStandard\(project, photos, page\)/)
-    expect(generate).toMatch(/generateGenbafotoJob\(project, targetPhotos, config\.templateType\)/)
+    // STEP 6-C：選択ページ出力ではページ情報（groupIndex / startNo / endNo）も渡す。全ページ出力では渡さない
+    expect(generate).toMatch(/generateGenbafotoJob\(project, targetPhotos, config\.templateType, page \? toGenbafotoPage\(page\) : undefined\)/)
   })
 
   it('標準モードは既存の ExcelJS 生成関数、Excel直接作成モードは既存の .genbafoto 生成処理をそのまま使う', () => {

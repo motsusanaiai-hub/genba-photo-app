@@ -5,6 +5,7 @@ import type { Project } from '@/types/project'
 import { PHASE_CONFIG } from '@/types/photo'
 import { photoStorage } from '@/lib/photoStorage'
 import { downloadCloudCompressed } from '@/lib/cloudSync'
+import { excelLedgerFileName } from '@/lib/excelFileName'
 
 // ─── レイアウト定数 ───────────────────────────────────────────
 //
@@ -249,8 +250,7 @@ export async function generateExcel(
 ): Promise<void> {
   const wb = await buildExcelWorkbook(project, photos, page)
   const buffer = await wb.xlsx.writeBuffer()
-  const safeName = project.name.replace(/[\\/:*?"<>|]/g, '_')
-  triggerDownload(buffer as ArrayBuffer, `${safeName}_工事写真台帳.xlsx`)
+  triggerDownload(buffer as ArrayBuffer, excelLedgerFileName(project.name, 'standard'))
 }
 
 /**

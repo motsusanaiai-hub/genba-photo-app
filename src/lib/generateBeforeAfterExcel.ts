@@ -2,6 +2,7 @@ import { Workbook } from 'exceljs'
 import type { Worksheet } from 'exceljs'
 import type { Photo } from '@/types/photo'
 import type { Project } from '@/types/project'
+import { excelLedgerFileName } from '@/lib/excelFileName'
 import {
   type CellFrame,
   type ExcelPageInfo,
@@ -100,8 +101,7 @@ export async function generateBeforeAfterExcel(
 ): Promise<void> {
   const wb = await buildBeforeAfterWorkbook(project, photos, page)
   const buffer = await wb.xlsx.writeBuffer()
-  const safeName = project.name.replace(/[\\/:*?"<>|]/g, '_')
-  triggerDownload(buffer as ArrayBuffer, `${safeName}_施工前後写真台帳.xlsx`)
+  triggerDownload(buffer as ArrayBuffer, excelLedgerFileName(project.name, 'beforeAfter'))
 }
 
 /**

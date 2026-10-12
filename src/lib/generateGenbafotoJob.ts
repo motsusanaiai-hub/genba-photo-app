@@ -40,6 +40,18 @@ export interface GenbafotoPhotoV1 {
   imageUrlExpiresAt: string
 }
 
+/**
+ * 選択ページ出力のページ情報（任意項目。Helper 1.1.0 で対応）。値は ExcelPageInfo と同じ。
+ *   groupIndex … standard / large：0=施工前 / 1=施工中 / 2=施工後、beforeAfter：0
+ *   startNo / endNo … そのページの最初・最後の番号（standard / large は写真番号、beforeAfter は組番号）
+ * 全ページ出力では付けない。schemaVersion は 1 のまま（Helper 1.0.0 はこの項目を無視する）。
+ */
+export interface GenbafotoPageV1 {
+  groupIndex: number
+  startNo: number
+  endNo: number
+}
+
 export interface GenbafotoJobV1 {
   schemaVersion: 1
   jobId: string
@@ -47,10 +59,12 @@ export interface GenbafotoJobV1 {
   templateType: GenbafotoTemplateType
   project: { name: string; location: string }
   photos: GenbafotoPhotoV1[]
+  page?: GenbafotoPageV1
 }
 
 export type GenbafotoJobFailureReason =
   | 'invalid_template_type'
+  | 'invalid_page'
   | 'no_photos'
   | 'too_many_photos'
   | 'unsynced'
@@ -99,6 +113,11 @@ async function defaultDownload(blob: Blob, filename: string): Promise<void> {
 // インデックス同士をペアにする（duringは対象外）。ペアの施工前・施工後は
 // 同じNo.を共有する（例：「施工前 No.3」「施工後 No.3」）。
 // ここではその挙動をそのまま再現し、既存ExcelJS生成コード自体には一切触れない。
+//
+// 選択ページ出力（STEP 6-C）では、渡された写真はそのページの分だけになるため、
+// 番号を startNo（ExcelPageInfo.startNo）から振る。Web標準モードの選択ページ出力
+// （buildPhotoSheet の photoOffset = page.startNo - 1、施工前後の pairOffset = page.startNo - 1）と同じ番号になる。
+// 全ページ出力は startNo = 1（従来どおり1からの通し番号）。
 
 interface OrderedPhoto {
   photo: Photo
@@ -108,6 +127,7 @@ interface OrderedPhoto {
 export function orderPhotosForGenbafoto(
   photos: Photo[],
   templateType: GenbafotoTemplateType,
+  startNo = 1,
 ): OrderedPhoto[] {
   const sorted = [...photos].sort((a, b) => a.sort_order - b.sort_order)
 
@@ -117,7 +137,8 @@ export function orderPhotosForGenbafoto(
     const len = Math.max(befores.length, afters.length)
     const result: OrderedPhoto[] = []
     for (let i = 0; i < len; i++) {
-      const no = i + 1
+      // 同じ組の施工前・施工後は同じ番号（組番号）
+      const no = startNo + i
       if (befores[i]) result.push({ photo: befores[i], no })
       if (afters[i]) result.push({ photo: afters[i], no })
     }
@@ -128,7 +149,26 @@ export function orderPhotosForGenbafoto(
   const before = sorted.filter((p) => p.phase === 'before')
   const during = sorted.filter((p) => p.phase === 'during')
   const after = sorted.filter((p) => p.phase === 'after')
-  return [...before, ...during, ...after].map((photo, i) => ({ photo, no: i + 1 }))
+  return [...before, ...during, ...after].map((photo, i) => ({ photo, no: startNo + i }))
+}
+
+const PAGE_PHASES = ['before', 'during', 'after'] as const
+
+/**
+ * 選択ページの情報と、実際に .genbafoto に入る写真・番号が食い違っていないかを確認する。
+ * Helper 1.1.0 も同じ確認をして食い違いはエラーにするため、Web 側で先に止めて送らない。
+ */
+function isPageConsistent(page: GenbafotoPageV1, ordered: OrderedPhoto[], templateType: GenbafotoTemplateType): boolean {
+  const { groupIndex, startNo, endNo } = page
+  if (![groupIndex, startNo, endNo].every(Number.isInteger) || startNo < 1 || endNo < startNo) return false
+  if (templateType === 'beforeAfter') {
+    if (groupIndex !== 0) return false
+  } else {
+    const phase = PAGE_PHASES[groupIndex]
+    if (!phase || ordered.some((o) => o.photo.phase !== phase)) return false
+  }
+  const lastNo = ordered.reduce((max, o) => Math.max(max, o.no), 0)
+  return ordered.length > 0 && ordered[0].no === startNo && lastNo === endNo
 }
 
 // ─── 未同期チェック ──────────────────────────────────────────────
@@ -198,10 +238,15 @@ function clamp(value: string, max: number): string {
 
 // ─── メイン ──────────────────────────────────────────────────
 
+/**
+ * page を渡すと選択ページ出力として扱う：no を page.startNo から振り、.genbafoto に page を付ける。
+ * page を省略（全ページ出力）した場合は、従来どおり no は1からの通し番号で、page は付けない。
+ */
 export async function generateGenbafotoJob(
   project: Project,
   photos: Photo[],
   templateType: GenbafotoTemplateType,
+  page?: GenbafotoPageV1 | null,
   deps: GenerateGenbafotoJobDeps = {},
 ): Promise<GenbafotoJobResult> {
   const {
@@ -219,10 +264,19 @@ export async function generateGenbafotoJob(
     }
   }
 
-  const ordered = orderPhotosForGenbafoto(photos, templateType)
+  const ordered = orderPhotosForGenbafoto(photos, templateType, page ? page.startNo : 1)
 
   if (ordered.length === 0) {
     return { ok: false, reason: 'no_photos', message: '出力対象の写真がありません。' }
+  }
+
+  if (page && !isPageConsistent(page, ordered, templateType)) {
+    console.error('[generateGenbafotoJob] 選択ページの情報と対象写真が一致しません')
+    return {
+      ok: false,
+      reason: 'invalid_page',
+      message: '出力するページの情報が正しくありません。もう一度お試しください。',
+    }
   }
 
   if (ordered.length > MAX_PHOTOS) {
@@ -346,6 +400,10 @@ export async function generateGenbafotoJob(
       imageUrl: urlById.get(photo.id)!,
       imageUrlExpiresAt: parsed.expiresAt,
     })),
+  }
+  // 選択ページ出力のときだけ page を付ける（全ページ出力では付けない）
+  if (page) {
+    job.page = { groupIndex: page.groupIndex, startNo: page.startNo, endNo: page.endNo }
   }
 
   const filename = `${jobId}.genbafoto`
