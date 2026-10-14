@@ -14,7 +14,9 @@ interface Props {
 
 /**
  * 広告表示の唯一の分岐点。
- * free: 自社広告を表示する / ads_removed・pro: 何もrenderしない（DOMに残さない）。
+ * 現場フォトは広告付きの完全無料アプリのため、全プラン（free / ads_removed / pro）に自社広告を表示する
+ * （表示するかの判定は shouldShowAds に一本化してあり、false を返す場合は何もrenderしない）。
+ * 表示場所はダッシュボードのみ（写真撮影・写真編集・Excel出力の操作の邪魔をしない）。
  *
  * 現時点では外部の広告SDK（AdSense等）とは接続しておらず、src/lib/houseAds.ts の自社広告だけを出す。
  * 将来、外部広告に切り替える場合も AdFrame の中身（HouseAdCard）だけを差し替え、

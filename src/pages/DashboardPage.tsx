@@ -1,22 +1,14 @@
-import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FolderOpen, Plus, X } from 'lucide-react'
+import { FolderOpen, Plus } from 'lucide-react'
 import { useProjects } from '@/hooks/useProjects'
 import { ProjectCard } from '@/components/project/ProjectCard'
 import { Button } from '@/components/ui/button'
 import { Header } from '@/components/layout/Header'
 import { AdSlot } from '@/components/common/AdSlot'
-import { RemoveAdsButton } from '@/components/billing/RemoveAdsButton'
-import { ProCheckoutButton } from '@/components/billing/ProCheckoutButton'
-import { ManageSubscriptionCard } from '@/components/billing/ManageSubscriptionCard'
-import { useAuthStore } from '@/store/authStore'
-import { PROJECT_LIMIT_MESSAGE, shouldShowAds } from '@/lib/plan'
 
 export function DashboardPage() {
   const navigate = useNavigate()
-  const { projects, canCreateNewProject, removeProject } = useProjects()
-  const [showLimitNotice, setShowLimitNotice] = useState(false)
-  const plan = useAuthStore((s) => s.user?.plan ?? 'free')
+  const { projects, removeProject } = useProjects()
 
   const handleDelete = async (projectId: string, projectName: string) => {
     const confirmed = window.confirm(
@@ -25,12 +17,8 @@ export function DashboardPage() {
     if (confirmed) await removeProject(projectId)
   }
 
-  // 新規作成の入口（ヘッダーボタン・FAB共通）。上限到達時は遷移させず理由を表示する。
+  // 新規作成の入口（ヘッダーボタン・FAB共通）。工事案件数の上限はない。
   const handleNewProjectClick = () => {
-    if (!canCreateNewProject) {
-      setShowLimitNotice(true)
-      return
-    }
     navigate('/projects/new')
   }
 
@@ -45,19 +33,6 @@ export function DashboardPage() {
           </Button>
         }
       />
-
-      {showLimitNotice && (
-        <div className="mx-4 mt-4 lg:mx-6 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-sm p-3 leading-relaxed">
-          <span className="flex-1">{PROJECT_LIMIT_MESSAGE}</span>
-          <button
-            onClick={() => setShowLimitNotice(false)}
-            className="shrink-0 text-amber-700 hover:text-amber-900"
-            aria-label="閉じる"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
 
       <div className="p-4 lg:p-6">
         {projects.length === 0 ? (
@@ -76,21 +51,10 @@ export function DashboardPage() {
           </div>
         )}
 
-        {/* Proプランの購入導線（VITE_PRO_CHECKOUT_ENABLED のビルドのみ。proでは何もrenderしない）。 */}
-        <ProCheckoutButton className="mt-6" />
-
-        {/* Pro月額の契約管理（Stripe Customer Portal）。アプリ経由のSubscriptionがある場合だけrenderする。
-            広告削除ボタンが出ない（free以外）ときはこれが最下部になるため、FABと重ならない余白を付ける。 */}
-        <ManageSubscriptionCard className={shouldShowAds(plan) ? 'mt-6' : 'mt-6 mb-24 lg:mb-6'} />
-
-        {/* 広告枠（free限定。ads_removed/proではAdSlot自体が何もrenderしない）。 */}
-        <AdSlot className="mt-6" />
-
-        {/* 広告削除の購入導線（free限定。ads_removed/proではRemoveAdsButton自体が
-            何もrenderしない）。広告のすぐ下に置くことで文脈を分かりやすくする。
-            モバイルFAB（bottom-20〜136px帯）と重ならないよう下に余白を確保する
-            （非表示時に余白だけ残らないよう、余白クラスはコンポーネント自身に渡す）。 */}
-        <RemoveAdsButton className="mt-3 mb-24 lg:mb-6" />
+        {/* 広告枠（全ユーザーに表示する自社広告。現場フォトは広告付きの無料アプリ）。
+            広告の表示場所はダッシュボードのみ。モバイルFAB（bottom-20〜136px帯）と重ならないよう
+            下に余白を確保する。購入・アップグレード・契約管理の導線は置かない。 */}
+        <AdSlot className="mt-6 mb-24 lg:mb-6" />
       </div>
 
       {/* スマホ用 FAB */}

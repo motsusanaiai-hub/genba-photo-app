@@ -3,9 +3,15 @@ import Stripe from 'stripe'
 import { requireEnv } from './_lib/requireEnv.js'
 import { createSupabaseAdminClient } from './_lib/supabaseAdmin.js'
 import { resolveAppOrigin } from './_lib/appOrigin.js'
+import { NEW_PURCHASES_OPEN, PURCHASES_CLOSED_BODY, PURCHASES_CLOSED_STATUS } from './_lib/purchaseGate.js'
 
 /**
  * 現場フォト Pro（月額）用のStripe Checkout Session（mode: subscription）を作成する。
+ *
+ * 【新規購入の受付は終了している】現場フォトの完全無料化に伴い、Proプランは廃止した。
+ * NEW_PURCHASES_OPEN（_lib/purchaseGate.ts）が false の間は、PRO_CHECKOUT_ENABLED の値に関係なく、
+ * 認証・DB参照・Stripe呼び出しより前に 410 を返し、Checkout Session を一切作らない。
+ * 以下の処理（PRO_CHECKOUT_ENABLED の判定を含む）は、将来再開する場合のために残している。
  *
  * 既存の広告削除（買い切り）用 create-checkout-session.ts とは完全に別のAPIとし、
  * 既存フローのコード・環境変数（STRIPE_ADS_REMOVED_PRICE_ID 等）には一切依存しない。
@@ -47,6 +53,12 @@ export function isProCheckoutEnabled(value: string | undefined): boolean {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method Not Allowed' })
+    return
+  }
+
+  // 新規購入の受付終了（環境変数に依存しない恒久停止）。認証・DB・Stripe より前に止める。
+  if (!NEW_PURCHASES_OPEN) {
+    res.status(PURCHASES_CLOSED_STATUS).json(PURCHASES_CLOSED_BODY)
     return
   }
 
