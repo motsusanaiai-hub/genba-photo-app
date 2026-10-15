@@ -253,6 +253,40 @@ function promptHidden(question) {
   })
 }
 
+// ─── 対象写真の選択（PRIVATE 化後に作成された写真） ───────────────────────────
+// 画面上の追加日時ではなく、Storage 上のオブジェクトの作成日時（created_at）を使う。
+// 同じパスの再アップロード（upsert）で更新日時が変わっても、作成日時は初回のままなので、
+// 「PRIVATE 化の前に公開URLでキャッシュされ得た」写真を誤って選ばないための、保守的な基準になる。
+
+/** 「YYYY-MM-DD HH:MM」（日本時間）を Date にする。形式が違えば null。 */
+export function parseJstDateTime(text) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})$/.exec(String(text ?? '').trim())
+  if (!m) return null
+  const date = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00+09:00`)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+/**
+ * photos の行（storage_path）と、Storage の一覧（name, created_at）を突き合わせ、
+ * cutoff より後に作成されたオブジェクトのうち最新のもののパスを返す。無ければ null。
+ * ownerId のフォルダ直下の `${ownerId}/${name}` と一致するパスだけを対象にする。
+ */
+export function selectPostPrivatePath({ rows, objects, ownerId, cutoff }) {
+  const known = new Set((rows ?? []).map((r) => r?.storage_path).filter((v) => typeof v === 'string'))
+  let best = null
+  let eligible = 0
+  for (const obj of objects ?? []) {
+    if (!obj || typeof obj.name !== 'string' || typeof obj.created_at !== 'string') continue
+    const created = new Date(obj.created_at)
+    if (Number.isNaN(created.getTime()) || created <= cutoff) continue
+    const path = `${ownerId}/${obj.name}`
+    if (!known.has(path)) continue
+    eligible++
+    if (!best || created > best.created) best = { path, created }
+  }
+  return { path: best ? best.path : null, eligible }
+}
+
 // ─── テスト本体 ─────────────────────────────────────────────────────────
 
 function newClient(anonKey) {
@@ -279,11 +313,17 @@ async function run() {
   const passA = await promptHidden('ユーザーA のパスワード（表示されません）: ')
   const emailB = await promptLine('ユーザーB（テスト用）のメールアドレス: ')
   const passB = await promptHidden('ユーザーB のパスワード（表示されません）: ')
+  const cutoffText = await promptLine(
+    'バケットを非公開にした日時（日本時間。例 2026-10-15 14:30）。この日時より後に作成された写真だけを対象にします。空欄なら最初の写真: ',
+  )
+  const cutoff = cutoffText === '' ? null : parseJstDateTime(cutoffText)
+  if (cutoffText !== '' && !cutoff) throw new Error('入力した日時の形式が違います（例 2026-10-15 14:30）')
   console.log('')
 
   const result = { aDownload: 'inconclusive', aSigned: 'inconclusive', bDownload: 'inconclusive', bSigned: 'inconclusive', publicUrl: 'inconclusive' }
   const notes = []
   const details = []
+  let selection = ''
   const clientA = newClient(anonKey)
   const clientB = newClient(anonKey)
 
@@ -294,16 +334,37 @@ async function run() {
       notes.push('ユーザーAのログインに失敗しました（メールアドレス・パスワード・接続を確認してください）')
       return { result, notes }
     }
-    const { data: rows, error: rowsError } = await clientA
-      .from('photos')
-      .select('storage_path')
-      .not('storage_path', 'is', null)
-      .limit(1)
-    if (rowsError || !rows || rows.length === 0 || typeof rows[0].storage_path !== 'string') {
-      notes.push('ユーザーAの写真（クラウド同期済み）を取得できませんでした。Aでテスト用の写真を同期してから再実行してください')
-      return { result, notes }
+    let path
+    if (cutoff) {
+      // PRIVATE 化の後に作成された写真だけを対象にする（Storage の作成日時で判定）
+      const { data: rows, error: rowsError } = await clientA.from('photos').select('storage_path').not('storage_path', 'is', null)
+      const { data: objects, error: listError } = await clientA.storage
+        .from(BUCKET)
+        .list(idA, { limit: 1000, sortBy: { column: 'created_at', order: 'desc' } })
+      if (rowsError || listError || !rows || !objects) {
+        notes.push('Aの写真の一覧、またはStorageのオブジェクト一覧を取得できませんでした')
+        return { result, notes }
+      }
+      const picked = selectPostPrivatePath({ rows, objects, ownerId: idA, cutoff })
+      if (!picked.path) {
+        notes.push('指定した日時より後にStorageへ作成された写真が見つかりませんでした。日時を確認するか、非公開化の後に写真を追加してください')
+        return { result, notes }
+      }
+      path = picked.path
+      selection = `対象写真：指定日時より後にStorageへ作成されたオブジェクト（該当 ${picked.eligible} 件のうち最新の1件）`
+    } else {
+      const { data: rows, error: rowsError } = await clientA
+        .from('photos')
+        .select('storage_path')
+        .not('storage_path', 'is', null)
+        .limit(1)
+      if (rowsError || !rows || rows.length === 0 || typeof rows[0].storage_path !== 'string') {
+        notes.push('ユーザーAの写真（クラウド同期済み）を取得できませんでした。Aでテスト用の写真を同期してから再実行してください')
+        return { result, notes }
+      }
+      path = rows[0].storage_path
+      selection = '対象写真：最初に見つかった写真（作成日時の指定なし。非公開化の前に作成された可能性があり、古いCDNキャッシュの影響を受け得ます）'
     }
-    const path = rows[0].storage_path
     if (!path.startsWith(idA + '/')) {
       notes.push('取得した写真の保存先がAの所有者フォルダではないため、テストを中止しました')
       return { result, notes }
@@ -353,14 +414,15 @@ async function run() {
     const note = cacheNote(plainResult, bustedResult)
     if (note) notes.push(note)
     if (plain.redirected || busted.redirected) notes.push('公開URLがリダイレクトされました。リダイレクト先は追従していません')
-    return { result, notes, details }
+    return { result, notes, details, selection }
   } finally {
     // この端末内の状態だけを消す（scope: local）。サーバー側の他のログインは切らない
     await Promise.allSettled([clientA.auth.signOut({ scope: 'local' }), clientB.auth.signOut({ scope: 'local' })])
   }
 }
 
-function printReport({ result, notes, details = [] }) {
+function printReport({ result, notes, details = [], selection = '' }) {
+  if (selection) console.log(selection + '\n')
   console.log('TEST 1')
   console.log('  A本人のdownload：' + LABEL[result.aDownload])
   console.log('  A本人の署名URL発行：' + LABEL[result.aSigned])
@@ -434,6 +496,26 @@ function selftest() {
 }
 
 async function selftestPublic({ check, fake, JPEG }) {
+  // 対象写真の選択（PRIVATE 化後に作成された写真）
+  check('日時の入力: 日本時間として解釈する', parseJstDateTime('2026-10-15 14:30')?.toISOString() === '2026-10-15T05:30:00.000Z')
+  check('日時の入力: T 区切りも可', parseJstDateTime('2026-10-15T14:30') !== null)
+  check('日時の入力: 形式が違えば null', parseJstDateTime('2026/10/15 14:30') === null && parseJstDateTime('') === null && parseJstDateTime('abc') === null)
+  const cutoff = parseJstDateTime('2026-10-15 14:30')
+  const owner = 'owner-1'
+  const rows = [{ storage_path: 'owner-1/old.jpg' }, { storage_path: 'owner-1/new1.jpg' }, { storage_path: 'owner-1/new2.jpg' }]
+  const objects = [
+    { name: 'old.jpg', created_at: '2026-10-15T04:00:00.000Z' }, // 13:00 JST（非公開化の前）
+    { name: 'new1.jpg', created_at: '2026-10-15T07:00:00.000Z' }, // 16:00 JST
+    { name: 'new2.jpg', created_at: '2026-10-15T08:00:00.000Z' }, // 17:00 JST
+    { name: 'orphan.jpg', created_at: '2026-10-15T09:00:00.000Z' }, // photos に行がない
+  ]
+  const picked = selectPostPrivatePath({ rows, objects, ownerId: owner, cutoff })
+  check('選択: 非公開化より後に作成された最新のものを選ぶ', picked.path === 'owner-1/new2.jpg' && picked.eligible === 2)
+  check('選択: 非公開化より前のオブジェクトは選ばない', selectPostPrivatePath({ rows: [rows[0]], objects, ownerId: owner, cutoff }).path === null)
+  check('選択: photos に行がないオブジェクトは選ばない', selectPostPrivatePath({ rows: [], objects, ownerId: owner, cutoff }).path === null)
+  check('選択: 他人のフォルダのパスは選ばない', selectPostPrivatePath({ rows: [{ storage_path: 'other/new2.jpg' }], objects, ownerId: owner, cutoff }).path === null)
+  check('選択: 作成日時が無い・不正なものは無視する', selectPostPrivatePath({ rows, objects: [{ name: 'new1.jpg' }, { name: 'new2.jpg', created_at: 'xx' }], ownerId: owner, cutoff }).path === null)
+  check('選択: ちょうど同時刻は対象外（より後のみ）', selectPostPrivatePath({ rows, objects: [{ name: 'new1.jpg', created_at: cutoff.toISOString() }], ownerId: owner, cutoff }).path === null)
   const jpegHit = await probePublicUrl('https://example.invalid/a', fake(200, { 'content-type': 'image/jpeg', 'cf-cache-status': 'HIT', age: '120' }, JPEG))
   check('公開URL: 200 + JPEG → 観察で JPEG と判定', jpegHit.status === 200 && jpegHit.isJpeg === true && jpegHit.contentType === 'image/jpeg')
   check('公開URL: キャッシュ関連ヘッダーを取得する', jpegHit.cache['cf-cache-status'] === 'HIT' && jpegHit.cache.age === '120')
@@ -474,7 +556,7 @@ if (isMain) {
     process.exit(overall === 'PASS' ? 0 : overall === 'FAIL' ? 1 : 2)
   } catch (error) {
     // 認証情報が含まれ得るため、エラーの内容は表示しない（種類と、安全確認の失敗理由のみ）
-    const safe = error instanceof Error && /^(本番|接続先|anon|secret|staging|対話|中断)/.test(error.message) ? error.message : null
+    const safe = error instanceof Error && /^(本番|接続先|anon|secret|staging|対話|中断|入力)/.test(error.message) ? error.message : null
     console.error('テストを中止しました' + (safe ? '：' + safe : '（予期しないエラー）'))
     process.exit(2)
   }
