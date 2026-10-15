@@ -64,10 +64,46 @@ export function LegalSummary({ children }: { children: ReactNode }) {
  * 運営者がまだ決めていない項目の表示。公開前に、このコンポーネントごと本文へ差し替える。
  * 文字列の先頭は LEGAL_PENDING_MARK 固定（公開前に検索して残りを確認できる）。
  */
-export function LegalPending({ item }: { item: LegalPendingKey }) {
+export function LegalPending({ item, note }: { item: LegalPendingKey; note?: string }) {
   return (
     <span data-legal-pending={item} className="rounded bg-amber-100 px-1 font-medium text-amber-900">
-      {LEGAL_PENDING_MARK}：{LEGAL_PENDING_ITEMS[item]}。公開前に差し替え】
+      {LEGAL_PENDING_MARK}：{LEGAL_PENDING_ITEMS[item]}
+      {note ? `（${note}）` : ''}。公開前に確定して差し替え】
     </span>
+  )
+}
+
+/** お問い合わせフォームへのリンク（別タブで開く）。問い合わせ・退会の受付窓口。 */
+export function ContactFormLink() {
+  return (
+    <a href={LEGAL.contactFormUrl} target="_blank" rel="noopener noreferrer" className="underline">
+      {LEGAL.contactFormLabel}
+      <span className="sr-only">（新しいタブで開きます）</span>
+    </a>
+  )
+}
+
+/**
+ * 運営者の情報（利用規約とプライバシーポリシーで共通）。会社情報は legalInfo.ts の値だけを表示するため、
+ * 2つの文書で必ず一致する。
+ */
+export function OperatorInfo() {
+  return (
+    <ul>
+      <li>運営者：{LEGAL.operatorName}</li>
+      <li>代表者：{LEGAL.representative}</li>
+      <li>
+        所在地：{LEGAL.postalCode} {LEGAL.address}
+      </li>
+      <li>
+        お問い合わせ：<ContactFormLink />
+      </li>
+      <li>
+        運営者のAI事業サイト（{LEGAL.operatorSiteName}）：
+        <a href={LEGAL.operatorSiteUrl} target="_blank" rel="noopener noreferrer" className="underline">
+          {LEGAL.operatorSiteUrl}
+        </a>
+      </li>
+    </ul>
   )
 }

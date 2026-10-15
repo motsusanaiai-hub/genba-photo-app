@@ -1,19 +1,27 @@
 import { Link } from 'react-router-dom'
-import { LegalLayout, LegalPending, LegalSection, LegalSummary } from '@/components/legal/LegalLayout'
-import { LEGAL } from '@/lib/legalInfo'
+import {
+  ContactFormLink,
+  LegalLayout,
+  LegalPending,
+  LegalSection,
+  LegalSummary,
+  OperatorInfo,
+} from '@/components/legal/LegalLayout'
+import { JURISDICTION_PROPOSAL, LEGAL } from '@/lib/legalInfo'
 
 /**
  * 利用規約（/terms）。ログイン不要の公開ページ。
  * 内容は実装（元画像は端末のIndexedDB・圧縮画像はSupabase Storageの公開バケット・
  * 工事案件は論理削除・アカウント削除機能は未実装 など）に合わせている。
- * 未確定の項目（問い合わせ先・制定日・準拠法/管轄・退会の受付方法・責任の範囲の最終文言）は
- * LegalPending で明示してあり、運営者が確定してから差し替える（src/lib/legalInfo.ts 参照）。
+ * 運営者の情報・問い合わせフォームは src/lib/legalInfo.ts の値を表示する（プライバシーポリシーと共通）。
+ * 未確定の項目（制定日・施行日、準拠法/管轄、責任の範囲の最終文言）は LegalPending で明示してあり、
+ * 公開時または法的確認の後に確定して差し替える（`npm run check:legal` で残りを確認できる）。
  */
 export function TermsPage() {
   return (
     <LegalLayout title="利用規約">
       <p className="mt-2 text-xs text-muted-foreground">
-        制定日・施行日：<LegalPending item="enactedAt" />
+        制定日・施行日：<LegalPending item="termsEnactedAt" />
       </p>
 
       <LegalSummary>
@@ -136,7 +144,7 @@ export function TermsPage() {
           </li>
           <li>
             <strong>アカウントの削除（退会）機能は、現在、アプリ内にありません。</strong>
-            退会をご希望の場合の受付方法は、<LegalPending item="withdrawal" />
+            アカウントの削除をご希望の場合は、<ContactFormLink />からご連絡ください。削除の具体的な手順や時期は、現時点では定めていません。
           </li>
         </ol>
       </LegalSection>
@@ -183,26 +191,15 @@ export function TermsPage() {
 
       <LegalSection title="第14条（準拠法・裁判管轄）">
         <p>
-          <LegalPending item="governingLaw" />
+          <LegalPending item="jurisdiction" note={`検討中の案：${JURISDICTION_PROPOSAL}`} />
         </p>
       </LegalSection>
 
       <LegalSection title="第15条（運営者とお問い合わせ）">
-        <ul>
-          <li>運営者：{LEGAL.operatorName}</li>
-          <li>
-            所在地・代表者名：<LegalPending item="operatorAddress" />
-          </li>
-          <li>
-            お問い合わせ先：<LegalPending item="contact" />
-          </li>
-          <li>
-            運営者の Web サイト：
-            <a href={LEGAL.operatorSiteUrl} target="_blank" rel="noopener noreferrer" className="underline">
-              {LEGAL.operatorSiteUrl}
-            </a>
-          </li>
-        </ul>
+        <OperatorInfo />
+        <p>
+          本サービスに関するお問い合わせは、<ContactFormLink />からお願いします。
+        </p>
       </LegalSection>
     </LegalLayout>
   )

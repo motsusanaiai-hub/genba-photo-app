@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { createElement } from 'react'
@@ -6,7 +7,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import { TermsPage } from '@/pages/legal/TermsPage'
 import { PrivacyPage } from '@/pages/legal/PrivacyPage'
-import { LEGAL, LEGAL_PENDING_ITEMS, LEGAL_PENDING_MARK } from '@/lib/legalInfo'
+import { JURISDICTION_PROPOSAL, LEGAL, LEGAL_PENDING_ITEMS, LEGAL_PENDING_MARK } from '@/lib/legalInfo'
 
 // 利用規約（/terms）・プライバシーポリシー（/privacy）。
 // 認証ストアにも Supabase にも触れずに描画できること（＝未ログインで開けること）、
@@ -20,7 +21,10 @@ function render(page: typeof TermsPage, url: string): string {
 }
 const decode = (s: string) => s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;/g, "'")
 /** タグを除いた本文（空白は詰める） */
-const textOf = (html: string) => decode(html.replace(/<[^>]+>/g, '')).replace(/\s+/g, '')
+const textOf = (html: string) =>
+  decode(html.replace(/<[^>]+>/g, ''))
+    .replace(/（新しいタブで開きます）/g, '') // リンクの読み上げ用の補足（画面には出ない）は、本文として数えない
+    .replace(/\s+/g, '')
 
 const terms = render(TermsPage, '/terms')
 const privacy = render(PrivacyPage, '/privacy')
@@ -165,30 +169,184 @@ describe('プライバシーポリシーの内容', () => {
   })
 })
 
-describe('未確定の運営者情報（勝手に決めない）', () => {
-  const pendingKeys = (html: string) => [...html.matchAll(/data-legal-pending="(\w+)"/g)].map((m) => m[1])
+describe('運営者情報（確定した情報は通常の文章で、規約とポリシーで一致する）', () => {
+  it('会社名・代表者・所在地が、運営者が確認した内容になっている', () => {
+    expect(LEGAL.operatorName).toBe('株式会社ACE')
+    expect(LEGAL.representative).toBe('代表取締役 茂木 克也')
+    expect(LEGAL.postalCode).toBe('〒356-0004')
+    expect(LEGAL.address).toBe('埼玉県ふじみ野市上福岡3-7-16')
+    expect(LEGAL.serviceName).toBe('現場フォト')
+    expect(LEGAL.operatorSiteUrl).toBe('https://ace-dx.jp/')
+  })
 
-  it('問い合わせ先・制定日・準拠法/管轄・退会の受付方法・責任の範囲・所在地は「未確定」と表示している', () => {
+  it('利用規約とプライバシーポリシーの両方に、同じ会社情報が表示される', () => {
+    for (const text of [termsText, privacyText]) {
+      expect(text).toContain('株式会社ACE')
+      expect(text).toContain('代表取締役茂木克也')
+      expect(text).toContain('〒356-0004埼玉県ふじみ野市上福岡3-7-16')
+      expect(text).toContain('https://ace-dx.jp/')
+    }
+  })
+
+  it('会社情報の表示は共通部品（OperatorInfo）で、2つの文書に会社情報を直接書いていない', () => {
+    for (const file of ['src/pages/legal/TermsPage.tsx', 'src/pages/legal/PrivacyPage.tsx']) {
+      const source = read(file)
+      expect(source).toContain('<OperatorInfo />')
+      expect(source).not.toMatch(/茂木|ふじみ野|356-0004|ace-dx\.jp/)
+    }
+  })
+
+  it('確定した情報は、未確定（黄色）の表示ではなく通常の文章である', () => {
+    for (const html of [terms, privacy]) {
+      for (const value of ['代表取締役 茂木 克也', 'ふじみ野市上福岡3-7-16']) {
+        const at = html.indexOf(value)
+        expect(at).toBeGreaterThan(-1)
+        const before = html.slice(0, at)
+        // 直前の未確定の表示（data-legal-pending）は、すでに閉じている
+        expect(before.lastIndexOf('data-legal-pending')).toBeLessThan(before.lastIndexOf('</span>'))
+      }
+    }
+  })
+})
+
+describe('お問い合わせフォーム（確認済みのURLだけを使う）', () => {
+  const CONTACT = 'https://ace-dx.jp/contact/'
+
+  it('URLは AI事業サイトのお問い合わせページ（トップページや推測のURLではない）', () => {
+    expect(LEGAL.contactFormUrl).toBe(CONTACT)
+    expect(LEGAL.contactFormUrl).not.toBe(LEGAL.operatorSiteUrl)
+  })
+
+  it.each([
+    ['利用規約', terms],
+    ['プライバシーポリシー', privacy],
+  ])('%s：お問い合わせフォームへのリンクは、別タブで開き、適切な rel 属性が付いている', (_name, html) => {
+    const tags = [...html.matchAll(/<a [^>]*href="https:\/\/ace-dx\.jp\/contact\/"[^>]*>/g)].map((m) => m[0])
+    expect(tags.length).toBeGreaterThan(0)
+    for (const tag of tags) {
+      expect(tag).toContain('target="_blank"')
+      expect(tag).toMatch(/rel="[^"]*noopener[^"]*"/)
+      expect(tag).toMatch(/rel="[^"]*noreferrer[^"]*"/)
+    }
+    expect(textOf(html)).toContain('お問い合わせフォーム')
+  })
+
+  it('利用規約 第9条・第15条、プライバシーポリシーの退会・開示・問い合わせの各項目に、フォームへのリンクがある', () => {
+    const sectionOf = (html: string, title: string) => {
+      const start = html.indexOf(title)
+      expect(start).toBeGreaterThan(-1)
+      return html.slice(start, html.indexOf('</section>', start))
+    }
+    const contactLink = 'href="https://ace-dx.jp/contact/"'
+    expect(sectionOf(terms, '第15条')).toContain(contactLink)
+    expect(sectionOf(terms, '第9条')).toContain(contactLink)
+    expect(sectionOf(privacy, '10. 事業者の情報とお問い合わせ')).toContain(contactLink)
+    expect(sectionOf(privacy, '9. 開示・訂正・削除などのご請求')).toContain(contactLink)
+    expect(sectionOf(privacy, '8. データの保存と削除')).toContain(contactLink)
+  })
+
+  it('メールアドレスではなく、フォームのリンクに統一している（mailto・tel・メールアドレスなし）', () => {
+    for (const html of [terms, privacy]) {
+      expect(html).not.toMatch(/mailto:|tel:/)
+      expect(decode(html.replace(/<[^>]+>/g, ' '))).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.-]+/)
+    }
+  })
+
+  it('許可するリンク先は、運営者のAI事業サイトとそのお問い合わせページだけ', () => {
+    for (const html of [terms, privacy]) {
+      const urls = [...decode(html).matchAll(/href="(https?:\/\/[^"]+)"/g)].map((m) => m[1])
+      expect([...new Set(urls)].sort()).toEqual([LEGAL.operatorSiteUrl, CONTACT].sort())
+    }
+  })
+})
+
+describe('退会（アカウント削除）の案内', () => {
+  it('フォームから連絡する案内になっていて、アプリ内機能が未実装であることも書いている', () => {
+    for (const text of [termsText, privacyText]) {
+      expect(text).toContain('アカウントの削除をご希望の場合は、お問い合わせフォームからご連絡ください')
+      expect(text).toContain('削除の具体的な手順や時期は、現時点では定めていません')
+    }
+    expect(termsText).toContain('アカウントの削除（退会）機能は、現在、アプリ内にありません')
+    expect(privacyText).toContain('現在、アプリ内に機能がありません')
+  })
+
+  it('実装されていない処理（即時削除・自動削除・期限内の削除）を保証する文章を書いていない', () => {
+    const forbidden =
+      /即時(に)?削除|直ちに削除|自動(的)?に(アカウントが)?削除され|(\d+|[一二三四五六七八九十]+)(日|営業日|週間|か月|ヶ月)以内に(必ず)?(アカウント)?(を)?削除|必ず削除|確実に削除|速やかに削除/
+    for (const text of [termsText, privacyText]) expect(text).not.toMatch(forbidden)
+  })
+})
+
+describe('未確定の項目（公開時に確定する情報・法的確認が必要な情報）', () => {
+  const pendingKeys = (html: string) => [...html.matchAll(/data-legal-pending="(\w+)"/g)].map((m) => m[1])
+  const EXPECTED = ['disclosure', 'jurisdiction', 'liability', 'privacyEnactedAt', 'termsEnactedAt']
+
+  it('残っている未確定項目は、制定日・施行日、準拠法/裁判管轄、免責の最終文言、開示等の手続きの5つだけ', () => {
     const all = new Set([...pendingKeys(terms), ...pendingKeys(privacy)])
-    expect([...all].sort()).toEqual(Object.keys(LEGAL_PENDING_ITEMS).sort())
+    expect([...all].sort()).toEqual(EXPECTED)
+    expect(Object.keys(LEGAL_PENDING_ITEMS).sort()).toEqual(EXPECTED)
     expect(terms).toContain(LEGAL_PENDING_MARK)
     expect(privacy).toContain(LEGAL_PENDING_MARK)
   })
 
-  it('実在しないメールアドレス・問い合わせフォームURLを作っていない（確認できるURLは運営者サイトのみ）', () => {
-    for (const html of [terms, privacy]) {
-      const text = decode(html.replace(/<[^>]+>/g, ' '))
-      expect(text).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.-]+/)
-      expect(text).not.toMatch(/tel:|電話番号|フォーム(URL|は)/)
-      // リンク先（href）だけを数える（アイコンの XML 名前空間などは対象外）
-      const urls = [...decode(html).matchAll(/href="(https?:\/\/[^"]+)"/g)].map((m) => m[1])
-      expect([...new Set(urls)]).toEqual([LEGAL.operatorSiteUrl])
+  it('確定済みの項目（問い合わせ先・所在地・代表者・退会の受付窓口）は、未確定の一覧に含まれない', () => {
+    for (const key of ['contact', 'operatorAddress', 'withdrawal', 'representative']) {
+      expect(Object.keys(LEGAL_PENDING_ITEMS)).not.toContain(key)
     }
   })
 
-  it('運営者の名称とサイトは、自社広告（houseAds）と同じ確認済みの値を使っている', () => {
-    const ads = read('src/lib/houseAds.ts')
-    expect(ads).toContain(LEGAL.operatorName)
-    expect(ads).toContain(LEGAL.operatorSiteUrl)
+  it('制定日・施行日は日付を決めていない（未確定のまま）。日付らしい表記もない', () => {
+    expect(pendingKeys(terms)).toContain('termsEnactedAt')
+    expect(pendingKeys(privacy)).toContain('privacyEnactedAt')
+    for (const text of [termsText, privacyText]) {
+      expect(text).not.toMatch(/制定日[：:]?\d|施行日[：:]?\d|20\d\d年\d+月\d+日/)
+    }
+  })
+
+  it('裁判管轄は「検討中の案」として未確定の枠の中にだけ示し、確定事項として書いていない', () => {
+    const court = 'さいたま地方裁判所'
+    expect(terms).toContain(court)
+    expect(privacy).not.toContain(court)
+    const before = terms.slice(0, terms.indexOf(court))
+    // 案の文言は、未確定の表示（data-legal-pending="jurisdiction"）の中にある
+    expect(before.lastIndexOf('data-legal-pending="jurisdiction"')).toBeGreaterThan(before.lastIndexOf('</span>'))
+    expect(terms).toContain('検討中の案')
+    expect(JURISDICTION_PROPOSAL).toBe('さいたま地方裁判所を第一審の合意管轄裁判所とする')
+  })
+
+  it('免責事項は、責任範囲を広げていない（従来の表現を維持し、最終文言は未確定のまま）', () => {
+    expect(pendingKeys(terms)).toContain('liability')
+    expect(termsText).toContain('当社に故意または重大な過失がある場合を除き')
+    expect(termsText).not.toMatch(/一切の責任を負いません|いかなる(場合|責任)も|損害賠償責任を(一切)?負いません/)
+  })
+
+  it('個人情報の開示等の請求は、フォームでの受付と、未確定の手続きの枠を示している', () => {
+    expect(pendingKeys(privacy)).toContain('disclosure')
+    expect(privacyText).toContain('ご自身の情報の開示、訂正、削除などをご希望の場合は、お問い合わせフォームからご連絡ください')
+  })
+})
+
+describe('公開前の確認（npm run check:legal）', () => {
+  const script = path.join(ROOT, 'scripts/check-legal-pending.mjs')
+
+  it('未確定の項目が残っていることを検出し、一覧を表示して失敗の終了コードで終わる', () => {
+    let status = 0
+    let output = ''
+    try {
+      output = execFileSync(process.execPath, [script], { encoding: 'utf8' })
+    } catch (error) {
+      const e = error as { status?: number; stdout?: string }
+      status = e.status ?? 1
+      output = e.stdout ?? ''
+    }
+    expect(status).toBe(1)
+    expect(output).toContain('未確定の項目が 5 件残っています')
+    for (const label of Object.values(LEGAL_PENDING_ITEMS)) expect(output).toContain(label)
+  })
+
+  it('ビルドと自動テストの失敗条件にはしていない（package.json の build / test に組み込まれていない）', () => {
+    const scripts = JSON.parse(read('package.json')).scripts as Record<string, string>
+    expect(scripts['check:legal']).toBe('node scripts/check-legal-pending.mjs')
+    for (const name of ['build', 'test', 'dev', 'preview']) expect(scripts[name]).not.toMatch(/check:legal|check-legal/)
   })
 })

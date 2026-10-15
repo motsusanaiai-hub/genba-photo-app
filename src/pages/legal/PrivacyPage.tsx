@@ -1,5 +1,12 @@
 import { Link } from 'react-router-dom'
-import { LegalLayout, LegalPending, LegalSection, LegalSummary } from '@/components/legal/LegalLayout'
+import {
+  ContactFormLink,
+  LegalLayout,
+  LegalPending,
+  LegalSection,
+  LegalSummary,
+  OperatorInfo,
+} from '@/components/legal/LegalLayout'
 import { LEGAL } from '@/lib/legalInfo'
 
 /**
@@ -9,13 +16,15 @@ import { LEGAL } from '@/lib/legalInfo'
  *   工事案件の削除＝クラウド上は論理削除・端末内の写真は残る / ログアウトでは端末内のデータは消えない
  *   アカウント削除機能は未実装 / 外部サービス＝Supabase・Vercel・Stripe（過去の決済用。新規販売は停止中）
  *   広告配信サービス・アクセス解析サービスは使っていない（自社広告へのリンクのみ）
- * 未確定の項目は LegalPending で明示してあり、運営者が確定してから差し替える（src/lib/legalInfo.ts 参照）。
+ * 運営者の情報・問い合わせフォームは src/lib/legalInfo.ts の値を表示する（利用規約と共通）。
+ * 未確定の項目（制定日、個人情報の開示等の手続き）は LegalPending で明示してあり、
+ * 公開時または法的確認の後に確定して差し替える（`npm run check:legal` で残りを確認できる）。
  */
 export function PrivacyPage() {
   return (
     <LegalLayout title="プライバシーポリシー">
       <p className="mt-2 text-xs text-muted-foreground">
-        制定日・施行日：<LegalPending item="enactedAt" />
+        制定日：<LegalPending item="privacyEnactedAt" />
       </p>
 
       <p className="mt-4">
@@ -53,6 +62,9 @@ export function PrivacyPage() {
           <li>
             <strong>圧縮画像</strong>：写真を 600px 程度の JPEG に小さくしたもの。写真に写っている内容を含みます。
             小さくする際に作り直すため、元の写真に含まれる位置情報などの付加情報は、圧縮画像には引き継がれません。
+          </li>
+          <li>
+            <strong>お問い合わせの内容</strong>：お問い合わせフォームに入力された内容。
           </li>
           <li>
             <strong>通信の記録</strong>：本サービスの配信や障害対応のため、アクセスの日時やIPアドレスなどの記録が、
@@ -160,33 +172,26 @@ export function PrivacyPage() {
           </li>
           <li>
             <strong>アカウントの削除（退会）</strong>：<strong>現在、アプリ内に機能がありません。</strong>
-            受付方法：<LegalPending item="withdrawal" />
+            アカウントの削除をご希望の場合は、<ContactFormLink />からご連絡ください。削除の具体的な手順や時期は、現時点では定めていません。
           </li>
         </ul>
       </LegalSection>
 
       <LegalSection id="requests" title="9. 開示・訂正・削除などのご請求">
         <p>
-          ご自身の情報の開示、訂正、削除などをご希望の場合は、下記のお問い合わせ先へご連絡ください。
+          ご自身の情報の開示、訂正、削除などをご希望の場合は、<ContactFormLink />からご連絡ください。
+        </p>
+        <p>
+          手続きの方法：<LegalPending item="disclosure" />
         </p>
       </LegalSection>
 
       <LegalSection id="contact" title="10. 事業者の情報とお問い合わせ">
-        <ul>
-          <li>事業者：{LEGAL.operatorName}</li>
-          <li>
-            所在地・代表者名：<LegalPending item="operatorAddress" />
-          </li>
-          <li>
-            お問い合わせ先：<LegalPending item="contact" />
-          </li>
-          <li>
-            運営者の Web サイト：
-            <a href={LEGAL.operatorSiteUrl} target="_blank" rel="noopener noreferrer" className="underline">
-              {LEGAL.operatorSiteUrl}
-            </a>
-          </li>
-        </ul>
+        <OperatorInfo />
+        <p>
+          お問い合わせは、<ContactFormLink />からお願いします。お問い合わせフォームは、運営者のAI事業サイト（{LEGAL.operatorSiteName}）にあります。
+          フォームに入力いただいた内容は、お問い合わせへの対応のために利用します。
+        </p>
       </LegalSection>
 
       <LegalSection id="changes" title="11. ポリシーの変更">
