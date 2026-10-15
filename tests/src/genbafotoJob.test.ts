@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { PROJECT, makePhoto } from './excelTestUtils'
+import { PROJECT, loginAs, makePhoto } from './excelTestUtils'
 
 // Excel直接作成モード（.genbafoto）の番号とページ情報（STEP 6-C）。
 //   - 全ページ出力：no は従来どおり1からの通し番号、page は付けない
@@ -27,6 +27,8 @@ import {
 } from '@/lib/generateGenbafotoJob'
 import { identityPhotos, pairsToPhotos, toGenbafotoPage } from '@/lib/genbafotoPageItems'
 import type { Phase, Photo } from '@/types/photo'
+
+await loginAs('user-1')
 
 function synced(phase: Phase, n: number): Photo[] {
   return Array.from({ length: n }, () => {

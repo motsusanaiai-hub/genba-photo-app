@@ -1,3 +1,4 @@
+import { guardExportTargets } from '@/lib/exportGuard'
 import type { Photo, Phase } from '@/types/photo'
 import type { Project } from '@/types/project'
 
@@ -264,7 +265,13 @@ export async function generateGenbafotoJob(
     }
   }
 
-  const ordered = orderPhotosForGenbafoto(photos, templateType, page ? page.startNo : 1)
+  // 他人の工事案件は出力しない（存在の有無を知らせないため、写真が無い場合と同じ結果にする）
+  const target = guardExportTargets(project, photos)
+  if (!target) {
+    return { ok: false, reason: 'no_photos', message: '出力対象の写真がありません。' }
+  }
+
+  const ordered = orderPhotosForGenbafoto(target.photos, templateType, page ? page.startNo : 1)
 
   if (ordered.length === 0) {
     return { ok: false, reason: 'no_photos', message: '出力対象の写真がありません。' }

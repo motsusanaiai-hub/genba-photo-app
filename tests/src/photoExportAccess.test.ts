@@ -29,6 +29,9 @@ import { getPhotoJpegBlob } from '@/lib/generateExcel'
 import { generateZip } from '@/lib/generateZip'
 import type { Photo } from '@/types/photo'
 import type { Project } from '@/types/project'
+import { loginAs } from './excelTestUtils'
+
+await loginAs('user-a')
 
 const photo = (id: string, overrides: Partial<Photo> = {}): Photo =>
   ({

@@ -7,6 +7,7 @@ import { useCameraStream, type CameraErrorReason } from '@/hooks/useCameraStream
 import { usePhotos } from '@/hooks/usePhotos'
 import { useDeviceSave } from '@/hooks/useDeviceSave'
 import { photoStorage } from '@/lib/photoStorage'
+import { isCurrentUsersPhoto } from '@/lib/exportGuard'
 import { captureVideoFrame, blobToFile } from '@/utils/cameraCapture'
 import { DeviceSaveBanner } from '@/components/photo/DeviceSaveBanner'
 import { Button } from '@/components/ui/button'
@@ -98,6 +99,8 @@ export function OverlayCameraView({ beforePhoto, projectId, onChangeBeforePhoto,
     let cancelled = false
     overlayFromCloud.current = false
     overlayRetried.current = false
+    // 本人の写真以外は、端末内の画像（IndexedDB）にもクラウドにも取りに行かない
+    if (!isCurrentUsersPhoto(beforePhoto)) return
     photoStorage.getObjectURL(beforePhoto.id).then(async (url) => {
       if (cancelled) {
         if (url) URL.revokeObjectURL(url)

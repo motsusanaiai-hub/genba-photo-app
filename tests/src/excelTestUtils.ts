@@ -158,3 +158,12 @@ export function cellTexts(ws: Worksheet): string[] {
   })
   return texts
 }
+
+/**
+ * 出力処理は、ログイン中のユーザー本人の工事案件・写真だけを出力する（H-1）。
+ * 出力を試すテストでは、テスト用データの所有者としてログインした状態にする。
+ */
+export async function loginAs(userId: string) {
+  const { useAuthStore } = await import('@/store/authStore')
+  useAuthStore.setState({ user: { id: userId, email: `${userId}@example.com`, display_name: userId, plan: 'free' }, initialized: true })
+}

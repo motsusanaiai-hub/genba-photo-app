@@ -1,3 +1,4 @@
+import { requireExportTargets } from '@/lib/exportGuard'
 import { Workbook } from 'exceljs'
 import type { Worksheet } from 'exceljs'
 import type { Photo } from '@/types/photo'
@@ -100,7 +101,8 @@ export async function generateBeforeAfterExcel(
   photos: Photo[],
   page?: ExcelPageInfo<Pair>,
 ): Promise<void> {
-  const wb = await buildBeforeAfterWorkbook(project, photos, page)
+  const target = requireExportTargets(project, photos)
+  const wb = await buildBeforeAfterWorkbook(target.project, target.photos, page)
   const buffer = await wb.xlsx.writeBuffer()
   triggerDownload(buffer as ArrayBuffer, excelLedgerFileName(project.name, 'beforeAfter'))
 }

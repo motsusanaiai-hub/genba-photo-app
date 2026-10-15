@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { FAKE_JPEG, PROJECT, installFileReaderPolyfill, makePhotoSet } from './excelTestUtils'
+import { FAKE_JPEG, PROJECT, installFileReaderPolyfill, loginAs, makePhotoSet } from './excelTestUtils'
 
 // Excel写真台帳のファイル名（STEP 6-C）。
 //   - 工事名の加工規則：前後の空白除去 → 制御文字と \ / : * ? " < > | を「_」→ 空なら「現場フォト」→ 最大100文字
@@ -17,6 +17,8 @@ import { generateExcel } from '@/lib/generateExcel'
 import { generateOneColumnExcel } from '@/lib/generateOneColumnExcel'
 import { generateBeforeAfterExcel } from '@/lib/generateBeforeAfterExcel'
 import type { Project } from '@/types/project'
+
+await loginAs('user-1')
 
 describe('工事名の加工（sanitizeProjectNameForFile）', () => {
   it('禁止文字（\\ / : * ? " < > |）と制御文字を「_」に置き換え、前後の空白を除く', () => {
