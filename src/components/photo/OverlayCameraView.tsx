@@ -6,14 +6,12 @@ import {
 import { useCameraStream, type CameraErrorReason } from '@/hooks/useCameraStream'
 import { usePhotos } from '@/hooks/usePhotos'
 import { useDeviceSave } from '@/hooks/useDeviceSave'
-import { photoStorage } from '@/lib/photoStorage'
-import { isCurrentUsersPhoto } from '@/lib/exportGuard'
+import { usePhotoDisplay } from '@/hooks/usePhotoDisplay'
 import { captureVideoFrame, blobToFile } from '@/utils/cameraCapture'
 import { DeviceSaveBanner } from '@/components/photo/DeviceSaveBanner'
 import { Button } from '@/components/ui/button'
 import { PHASE_OPTIONS, type Phase } from '@/types/photo'
 import type { Photo } from '@/types/photo'
-import { loadPhotoDisplayUrl, refreshPhotoDisplayUrl } from '@/lib/cloudPhotoCache'
 import { cn } from '@/lib/utils'
 
 const OPACITY_STORAGE_KEY = 'genba-overlay-capture-opacity'
@@ -69,7 +67,6 @@ export function OverlayCameraView({ beforePhoto, projectId, onChangeBeforePhoto,
   const { uploadPhotos } = usePhotos(projectId)
   const deviceSave = useDeviceSave()
 
-  const [overlayUrl, setOverlayUrl] = useState<string | null>(null)
   const [showOverlay, setShowOverlay] = useState(true)
   const [opacity, setOpacity] = useState(loadStoredOpacity)
   const [displayMode, setDisplayMode] = useState<DisplayMode>(loadStoredDisplayMode)
@@ -91,46 +88,10 @@ export function OverlayCameraView({ beforePhoto, projectId, onChangeBeforePhoto,
     startDist: number
   }>({ mode: 'none', base: DEFAULT_TRANSFORM, start: { x: 0, y: 0 }, startDist: 0 })
 
-  // 施工前写真の読み込み（端末内の画像を優先。なければクラウドの圧縮画像を本人の認証で取得）
-  const overlayFromCloud = useRef(false)
-  const overlayRetried = useRef(false)
-  useEffect(() => {
-    let revoke: string | null = null
-    let cancelled = false
-    overlayFromCloud.current = false
-    overlayRetried.current = false
-    // 本人の写真以外は、端末内の画像（IndexedDB）にもクラウドにも取りに行かない
-    if (!isCurrentUsersPhoto(beforePhoto)) return
-    photoStorage.getObjectURL(beforePhoto.id).then(async (url) => {
-      if (cancelled) {
-        if (url) URL.revokeObjectURL(url)
-        return
-      }
-      if (url) {
-        revoke = url
-        setOverlayUrl(url)
-      } else {
-        const display = await loadPhotoDisplayUrl(beforePhoto)
-        if (cancelled) return
-        overlayFromCloud.current = !beforePhoto.thumbnail_data_url
-        setOverlayUrl(display)
-      }
-    })
-    return () => {
-      cancelled = true
-      if (revoke) URL.revokeObjectURL(revoke)
-    }
-  }, [beforePhoto.id, beforePhoto.thumbnail_data_url, beforePhoto.storage_path])
-
-  // クラウドの画像の読み込みに失敗したとき（署名付きURLの失効など）、URLを1度だけ作り直す
-  const handleOverlayError = () => {
-    if (!overlayFromCloud.current || overlayRetried.current) {
-      setOverlayUrl(null)
-      return
-    }
-    overlayRetried.current = true
-    void refreshPhotoDisplayUrl(beforePhoto).then((url) => setOverlayUrl(url))
-  }
+  // 施工前写真の読み込み（端末内の画像を優先。なければクラウドの圧縮画像を本人の認証で取得）。
+  // 参照写真を変更・解除したり画面を閉じたりした後に完了した古い取得結果は反映されない。取得中は何も表示しない。
+  const { state: overlayState, handleError: handleOverlayError } = usePhotoDisplay(beforePhoto)
+  const overlayUrl = overlayState.url
 
   useEffect(() => {
     localStorage.setItem(OPACITY_STORAGE_KEY, String(opacity))

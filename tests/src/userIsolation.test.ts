@@ -421,10 +421,12 @@ describe('画面・同期への組み込み', () => {
 
   it('原本の読み込み（ライトボックス・撮影オーバーレイ）は、本人の写真か確認してから IndexedDB を読む', () => {
     for (const file of ['src/components/photo/PhotoLightbox.tsx', 'src/components/photo/OverlayCameraView.tsx']) {
-      const src = code(file)
-      expect(src.indexOf('isCurrentUsersPhoto(')).toBeGreaterThan(-1)
-      expect(src.indexOf('isCurrentUsersPhoto(')).toBeLessThan(src.indexOf('photoStorage.getObjectURL('))
+      expect(code(file)).toContain('usePhotoDisplay(')
     }
+    expect(code('src/hooks/usePhotoDisplay.ts')).toMatch(/canAccess: isCurrentUsersPhoto/)
+    const controller = code('src/lib/photoDisplayController.ts')
+    expect(controller.indexOf('this.deps.canAccess(')).toBeGreaterThan(-1)
+    expect(controller.indexOf('this.deps.canAccess(')).toBeLessThan(controller.indexOf('this.deps.getLocalObjectUrl('))
   })
 
   it('ログアウトで端末内のデータを消さない（ストア・IndexedDB・localStorage のクリア処理を持たない）', () => {

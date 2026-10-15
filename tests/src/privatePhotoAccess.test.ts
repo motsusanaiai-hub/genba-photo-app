@@ -137,18 +137,20 @@ describe('公開URLへの依存がない', () => {
       expect(code(file)).not.toMatch(/<img[^>]*src=\{resolve|supabase|storage\.from/)
     }
     for (const file of ['src/components/photo/PhotoLightbox.tsx', 'src/components/photo/OverlayCameraView.tsx']) {
-      expect(read(file)).toContain("from '@/lib/cloudPhotoCache'")
+      // 画像の取得は usePhotoDisplay（photoDisplayController）が cloudPhotoCache 経由で行う
+      expect(read(file)).toContain("from '@/hooks/usePhotoDisplay'")
       expect(code(file)).not.toMatch(/supabase|storage\.from/)
     }
+    expect(read('src/hooks/usePhotoDisplay.ts')).toContain("from '@/lib/cloudPhotoCache'")
   })
 
   it('ライトボックス・撮影オーバーレイは、IndexedDB の元画像を優先し、失効時はURLを1度だけ作り直す', () => {
     for (const file of ['src/components/photo/PhotoLightbox.tsx', 'src/components/photo/OverlayCameraView.tsx']) {
-      const source = code(file)
-      expect(source).toContain('photoStorage.getObjectURL(')
-      expect(source).toContain('refreshPhotoDisplayUrl')
-      expect(source).toMatch(/onError=\{handle(Image|Overlay)Error\}/)
+      expect(code(file)).toMatch(/onError=\{handle(Image|Overlay)Error\}/)
     }
+    // 取得の順序と再取得は共通の controller（動作は photoDisplayController.test.ts で確認）
+    expect(code('src/hooks/usePhotoDisplay.ts')).toContain('photoStorage.getObjectURL(')
+    expect(code('src/hooks/usePhotoDisplay.ts')).toContain('refreshDisplayUrl: refreshPhotoDisplayUrl')
   })
 })
 
