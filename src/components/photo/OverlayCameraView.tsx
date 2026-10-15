@@ -12,7 +12,7 @@ import { DeviceSaveBanner } from '@/components/photo/DeviceSaveBanner'
 import { Button } from '@/components/ui/button'
 import { PHASE_OPTIONS, type Phase } from '@/types/photo'
 import type { Photo } from '@/types/photo'
-import { resolvePhotoThumbUrl } from '@/lib/cloudSync'
+import { loadPhotoDisplayUrl, refreshPhotoDisplayUrl } from '@/lib/cloudPhotoCache'
 import { cn } from '@/lib/utils'
 
 const OPACITY_STORAGE_KEY = 'genba-overlay-capture-opacity'
@@ -90,19 +90,44 @@ export function OverlayCameraView({ beforePhoto, projectId, onChangeBeforePhoto,
     startDist: number
   }>({ mode: 'none', base: DEFAULT_TRANSFORM, start: { x: 0, y: 0 }, startDist: 0 })
 
-  // 施工前写真の読み込み
+  // 施工前写真の読み込み（端末内の画像を優先。なければクラウドの圧縮画像を本人の認証で取得）
+  const overlayFromCloud = useRef(false)
+  const overlayRetried = useRef(false)
   useEffect(() => {
     let revoke: string | null = null
-    photoStorage.getObjectURL(beforePhoto.id).then((url) => {
+    let cancelled = false
+    overlayFromCloud.current = false
+    overlayRetried.current = false
+    photoStorage.getObjectURL(beforePhoto.id).then(async (url) => {
+      if (cancelled) {
+        if (url) URL.revokeObjectURL(url)
+        return
+      }
       if (url) {
         revoke = url
         setOverlayUrl(url)
       } else {
-        setOverlayUrl(resolvePhotoThumbUrl(beforePhoto))
+        const display = await loadPhotoDisplayUrl(beforePhoto)
+        if (cancelled) return
+        overlayFromCloud.current = !beforePhoto.thumbnail_data_url
+        setOverlayUrl(display)
       }
     })
-    return () => { if (revoke) URL.revokeObjectURL(revoke) }
+    return () => {
+      cancelled = true
+      if (revoke) URL.revokeObjectURL(revoke)
+    }
   }, [beforePhoto.id, beforePhoto.thumbnail_data_url, beforePhoto.storage_path])
+
+  // クラウドの画像の読み込みに失敗したとき（署名付きURLの失効など）、URLを1度だけ作り直す
+  const handleOverlayError = () => {
+    if (!overlayFromCloud.current || overlayRetried.current) {
+      setOverlayUrl(null)
+      return
+    }
+    overlayRetried.current = true
+    void refreshPhotoDisplayUrl(beforePhoto).then((url) => setOverlayUrl(url))
+  }
 
   useEffect(() => {
     localStorage.setItem(OPACITY_STORAGE_KEY, String(opacity))
@@ -257,6 +282,7 @@ export function OverlayCameraView({ beforePhoto, projectId, onChangeBeforePhoto,
               src={overlayUrl}
               alt="施工前写真（オーバーレイ）"
               draggable={false}
+              onError={handleOverlayError}
               className="absolute left-1/2 top-1/2 max-w-full max-h-full w-auto h-auto select-none pointer-events-none"
               style={{
                 opacity: showOverlay ? opacity : 0,
@@ -288,6 +314,7 @@ export function OverlayCameraView({ beforePhoto, projectId, onChangeBeforePhoto,
                 src={overlayUrl}
                 alt="施工前写真（小窓）"
                 draggable={false}
+                onError={handleOverlayError}
                 className="w-full h-auto block pointer-events-none"
                 style={{ opacity: showOverlay ? 1 : 0.25 }}
               />

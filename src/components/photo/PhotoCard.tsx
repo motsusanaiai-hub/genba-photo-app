@@ -4,7 +4,7 @@ import { CSS } from '@dnd-kit/utilities'
 import type { Photo } from '@/types/photo'
 import { PhaseBadge } from './PhaseBadge'
 import { useLongPress } from '@/hooks/useLongPress'
-import { resolvePhotoThumbUrl } from '@/lib/cloudSync'
+import { PhotoImage } from './PhotoImage'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -63,11 +63,10 @@ export function PhotoCard({
         aria-label={`写真 ${index + 1}: ${photo.original_filename}`}
         {...longPress}
       >
-        <img
-          src={resolvePhotoThumbUrl(photo)}
+        <PhotoImage
+          photo={photo}
           alt={photo.original_filename}
           className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
-          loading="lazy"
         />
       </button>
 
