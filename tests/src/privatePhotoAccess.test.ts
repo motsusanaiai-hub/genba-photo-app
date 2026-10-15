@@ -29,13 +29,18 @@ vi.mock('@/lib/supabase', () => ({ supabase: mocks.supabase, isSupabaseConfigure
 // zustand のフックは、サーバー描画では初期状態しか返さないため、現在の状態を読むフックに差し替える（adSlot.test.ts と同じ方法）
 vi.mock('@/store/authStore', async () => {
   const { createStore } = await import('zustand/vanilla')
-  const store = createStore<{ user: { id: string } | null }>(() => ({ user: null }))
+  const store = createStore<{ user: { id: string } | null; initialized: boolean }>(() => ({ user: null, initialized: true }))
   const useAuthStore = Object.assign(
     <T>(selector: (s: ReturnType<typeof store.getState>) => T) => selector(store.getState()),
     store,
   )
   return { useAuthStore }
 })
+// 写真の所有者確認（H-1）に使う工事案件。user-a の工事案件 proj-1 だけがある
+vi.mock('@/store/projectStore', () => ({
+  useProjectStore: <T>(selector: (s: { projects: unknown[] }) => T) =>
+    selector({ projects: [{ id: 'proj-1', user_id: 'user-a' }] }),
+}))
 
 import { useAuthStore } from '@/store/authStore'
 import { getCloudPhotoAccess } from '@/lib/cloudPhotoCache'
@@ -52,9 +57,11 @@ function sourceFiles(dir: string): string[] {
   })
 }
 
-const render = (photo: { id: string; thumbnail_data_url: string; storage_path: string | null }) =>
-  renderToStaticMarkup(createElement(PhotoImage, { photo, alt: '写真A', className: 'w-full h-full object-cover' }))
-const login = (id: string | null) => (useAuthStore as unknown as { setState: (s: unknown) => void }).setState({ user: id ? { id } : null })
+const render = (input: { id: string; thumbnail_data_url: string; storage_path: string | null }) => {
+  const photo = { user_id: 'user-a', project_id: 'proj-1', ...input }
+  return renderToStaticMarkup(createElement(PhotoImage, { photo, alt: '写真A', className: 'w-full h-full object-cover' }))
+}
+const login = (id: string | null) => (useAuthStore as unknown as { setState: (s: unknown) => void }).setState({ user: id ? { id } : null, initialized: true })
 
 beforeEach(() => {
   login(null)
@@ -89,12 +96,13 @@ describe('写真の表示（PhotoImage）', () => {
     expect(html).toContain('w-full h-full object-cover') // レイアウトを変えない
   })
 
-  it('storage_path が null で端末内の画像も無い → 代替表示（画面全体は止まらない）', () => {
+  it('storage_path が null で端末内のサムネイルも無い → 端末内の圧縮画像（IndexedDB）を確認する間は読み込み中（クラウドには通信しない）', () => {
     login('user-a')
     const html = render({ id: 'p1', thumbnail_data_url: '', storage_path: null })
     expect(html).not.toContain('<img')
-    expect(html).toContain('data-photo-image-status="failed"')
-    expect(html).toContain('画像を表示できません')
+    expect(html).toContain('data-photo-image-status="loading"')
+    expect(mocks.signCalls).toBe(0)
+    // 圧縮画像も無かったときの代替表示は photoImageLocalFirst.test.ts で確認
   })
 
   it('ログアウト後は、前のユーザーのURLが取得済みでも表示しない', async () => {

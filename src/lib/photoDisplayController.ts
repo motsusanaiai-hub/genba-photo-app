@@ -21,6 +21,8 @@ export interface PhotoDisplayState {
 export interface PhotoDisplayDeps {
   /** 端末内の原本のURL（無ければ null） */
   getLocalObjectUrl: (photoId: string) => Promise<string | null>
+  /** 端末内の600px圧縮画像（IndexedDB）の Blob URL（無ければ null）。ここで作った URL は controller が解放する */
+  getLocalCompressedUrl?: (photoId: string) => Promise<string | null>
   /** サムネイルまたはクラウドの署名付きURL（無ければ null） */
   loadDisplayUrl: (photo: Photo) => Promise<string | null>
   /** 署名付きURLの作り直し（端末内の画像は null） */
@@ -66,6 +68,25 @@ export class PhotoDisplayController {
       this.localOriginal = true
       this.emit(local, false)
       return
+    }
+    // 端末内のサムネイルが無ければ、クラウドより先に端末内の600px圧縮画像を使う（通信しない）
+    if (!this.photo.thumbnail_data_url && this.deps.getLocalCompressedUrl) {
+      let compressed: string | null = null
+      try {
+        compressed = await this.deps.getLocalCompressedUrl(this.photo.id)
+      } catch {
+        compressed = null
+      }
+      if (this.disposed || gen !== this.generation) {
+        if (compressed) this.deps.revokeObjectUrl(compressed)
+        return
+      }
+      if (compressed) {
+        this.ownedObjectUrl = compressed
+        this.localOriginal = true
+        this.emit(compressed, false)
+        return
+      }
     }
     const display = await this.deps.loadDisplayUrl(this.photo)
     if (this.disposed || gen !== this.generation) return

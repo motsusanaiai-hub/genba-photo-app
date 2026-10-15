@@ -7,6 +7,10 @@ import type { Photo } from '@/types/photo'
 
 const defaultDeps: PhotoDisplayDeps = {
   getLocalObjectUrl: (id) => photoStorage.getObjectURL(id),
+  getLocalCompressedUrl: async (id) => {
+    const blob = await photoStorage.getCompressedBlob(id)
+    return blob ? URL.createObjectURL(blob) : null
+  },
   loadDisplayUrl: loadPhotoDisplayUrl,
   refreshDisplayUrl: refreshPhotoDisplayUrl,
   revokeObjectUrl: (url) => URL.revokeObjectURL(url),
