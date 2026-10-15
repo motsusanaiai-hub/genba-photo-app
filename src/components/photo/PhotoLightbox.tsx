@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { X, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'
 import { photoStorage } from '@/lib/photoStorage'
-import { resolvePhotoThumbUrl } from '@/lib/cloudSync'
+import { loadPhotoDisplayUrl, refreshPhotoDisplayUrl } from '@/lib/cloudPhotoCache'
 import { PhaseBadge } from './PhaseBadge'
 import type { Photo } from '@/types/photo'
 import { formatDate } from '@/utils/dateUtils'
@@ -17,31 +17,56 @@ interface Props {
 export function PhotoLightbox({ photo, photos, onClose, onChange, onDelete }: Props) {
   const [imageURL, setImageURL] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  // クラウドの画像の読み込みに失敗したとき、署名付きURLを作り直すのは1回だけ
+  const [retried, setRetried] = useState(false)
+  const [localOriginal, setLocalOriginal] = useState(false)
 
   const currentIndex = photos.findIndex((p) => p.id === photo.id)
   const hasPrev = currentIndex > 0
   const hasNext = currentIndex < photos.length - 1
 
-  // オリジナル画像を IndexedDB から取得。なければサムネイルを表示
+  // オリジナル画像を IndexedDB から取得。なければ端末内のサムネイル、それも無ければクラウドの圧縮画像
+  // （本人の認証で取得した署名付きURL）を表示
   useEffect(() => {
     let revoke: string | null = null
+    let cancelled = false
     setLoading(true)
     setImageURL(null)
+    setRetried(false)
+    setLocalOriginal(false)
 
-    photoStorage.getObjectURL(photo.id).then((url) => {
+    photoStorage.getObjectURL(photo.id).then(async (url) => {
+      if (cancelled) {
+        if (url) URL.revokeObjectURL(url)
+        return
+      }
       if (url) {
         revoke = url
+        setLocalOriginal(true)
         setImageURL(url)
       } else {
-        setImageURL(resolvePhotoThumbUrl(photo))
+        const display = await loadPhotoDisplayUrl(photo)
+        if (cancelled) return
+        setImageURL(display)
       }
       setLoading(false)
     })
 
     return () => {
+      cancelled = true
       if (revoke) URL.revokeObjectURL(revoke)
     }
   }, [photo.id, photo.thumbnail_data_url, photo.storage_path])
+
+  // 画像の読み込みに失敗したとき（署名付きURLの失効など）、クラウドの画像はURLを1度だけ作り直す
+  const handleImageError = () => {
+    if (localOriginal || retried) {
+      setImageURL(null)
+      return
+    }
+    setRetried(true)
+    void refreshPhotoDisplayUrl(photo).then((url) => setImageURL(url))
+  }
 
   const goPrev = useCallback(() => {
     if (hasPrev) onChange(photos[currentIndex - 1])
@@ -106,12 +131,17 @@ export function PhotoLightbox({ photo, photos, onClose, onChange, onDelete }: Pr
         {loading ? (
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-white border-t-transparent" />
         ) : (
-          <img
-            src={imageURL ?? resolvePhotoThumbUrl(photo)}
-            alt={photo.original_filename}
-            className="max-w-full max-h-full object-contain select-none"
-            draggable={false}
-          />
+          imageURL ? (
+            <img
+              src={imageURL}
+              alt={photo.original_filename}
+              className="max-w-full max-h-full object-contain select-none"
+              draggable={false}
+              onError={handleImageError}
+            />
+          ) : (
+            <p className="text-sm text-white/70">画像を表示できません</p>
+          )
         )}
 
         {/* ← ナビ */}
