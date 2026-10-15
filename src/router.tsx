@@ -4,6 +4,8 @@ import { AppLayout } from '@/components/layout/AppLayout'
 import { AuthGuard } from '@/components/auth/AuthGuard'
 import { LoginPage } from '@/pages/auth/LoginPage'
 import { SignupPage } from '@/pages/auth/SignupPage'
+import { ForgotPasswordPage } from '@/pages/auth/ForgotPasswordPage'
+import { ResetPasswordPage } from '@/pages/auth/ResetPasswordPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { ProjectNewPage } from '@/pages/project/ProjectNewPage'
 import { ProjectDetailPage } from '@/pages/project/ProjectDetailPage'
@@ -23,7 +25,16 @@ export const router = createBrowserRouter([
     children: [
       { path: 'login', element: <LoginPage /> },
       { path: 'signup', element: <SignupPage /> },
+      { path: 'forgot-password', element: <ForgotPasswordPage /> },
     ],
+  },
+  // パスワード再設定メールのリンク先。ログイン不要の公開ルート（AuthGuard の外）。
+  // ここへ戻っただけではパスワードを変更できない：PASSWORD_RECOVERY を受け取った Recovery セッションが必要
+  // （確認は ResetPasswordController。通常のログインセッションだけでは updateUser を呼ばない）。
+  {
+    path: '/reset-password',
+    element: <AuthLayout />,
+    children: [{ index: true, element: <ResetPasswordPage /> }],
   },
   {
     path: '/',
