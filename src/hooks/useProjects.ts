@@ -3,20 +3,24 @@ import { useProjectStore } from '@/store/projectStore'
 import { usePhotoStore } from '@/store/photoStore'
 import { insertCloudProjects, updateCloudProject, deleteCloudProjectCascade } from '@/lib/cloudSync'
 import { canCreateProject } from '@/lib/plan'
+import { findOwnedProject, ownsRecord, resolveOwnerId } from '@/lib/ownership'
 import type { Project, ProjectFormData, ProjectWithCount } from '@/types/project'
 
 export function useProjects() {
   const user = useAuthStore((s) => s.user)
+  const initialized = useAuthStore((s) => s.initialized)
+  // データを扱ってよいユーザーID。未ログイン・認証の確認前は null（誰のデータも扱わない）
+  const ownerId = resolveOwnerId({ user, initialized })
   const { projects, addProject, updateProject, deleteProject } = useProjectStore()
   const { photos } = usePhotoStore()
 
   // ログインユーザーのプロジェクトのみ、更新日降順
   const userProjects: ProjectWithCount[] = projects
-    .filter((p) => p.user_id === (user?.id ?? ''))
+    .filter((p) => ownsRecord(ownerId, p))
     .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
     .map((p) => ({
       ...p,
-      photo_count: photos.filter((ph) => ph.project_id === p.id).length,
+      photo_count: photos.filter((ph) => ph.project_id === p.id && ownsRecord(ownerId, ph)).length,
     }))
 
   // 新規現場作成の可否は、常にこのuserProjects.length（現在ログイン中ユーザーの
@@ -48,6 +52,8 @@ export function useProjects() {
   }
 
   const editProject = async (id: string, data: ProjectFormData) => {
+    // URL直打ち等で他人の工事案件IDが渡されても、変更しない
+    if (!findOwnedProject(projects, id, ownerId)) return
     const update = {
       name: data.name,
       location: data.location,
@@ -59,6 +65,8 @@ export function useProjects() {
   }
 
   const removeProject = async (id: string) => {
+    // 他人の工事案件IDが渡されても、ローカルにもクラウドにも削除を及ぼさない
+    if (!findOwnedProject(projects, id, ownerId)) return
     // ローカル（localStorage上のprojects/photosメタ、IndexedDB上の写真本体）は
     // 意図的に一切削除しない。現場削除後も端末内に写真データを残す仕様のため。
     deleteProject(id)
@@ -68,7 +76,8 @@ export function useProjects() {
     }
   }
 
-  const getProject = (id: string) => projects.find((p) => p.id === id)
+  // 本人の工事案件だけ返す。他人のもの・存在しないもの・未ログイン・認証の確認前は、どれも同じ undefined
+  const getProject = (id: string) => findOwnedProject(projects, id, ownerId)
 
   return {
     projects: userProjects,

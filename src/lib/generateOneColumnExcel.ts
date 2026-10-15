@@ -1,3 +1,4 @@
+import { requireExportTargets } from '@/lib/exportGuard'
 import { Workbook } from 'exceljs'
 import type { Photo } from '@/types/photo'
 import type { Project } from '@/types/project'
@@ -87,7 +88,8 @@ export async function generateOneColumnExcel(
   photos: Photo[],
   page?: ExcelPageInfo<Photo>,
 ): Promise<void> {
-  const wb = await buildOneColumnWorkbook(project, photos, page)
+  const target = requireExportTargets(project, photos)
+  const wb = await buildOneColumnWorkbook(target.project, target.photos, page)
   const buffer = await wb.xlsx.writeBuffer()
   const safeName = project.name.replace(/[\\/:*?"<>|]/g, '_')
   triggerDownload(buffer as ArrayBuffer, `${safeName}_工事写真台帳(大判).xlsx`)

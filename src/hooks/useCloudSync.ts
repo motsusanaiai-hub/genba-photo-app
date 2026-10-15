@@ -48,11 +48,17 @@ export function useCloudSync() {
     let cancelled = false
     ;(async () => {
       try {
-        const [cloudProjects, cloudPhotos, cloudFolders] = await Promise.all([
+        const [fetchedProjects, fetchedPhotos, fetchedFolders] = await Promise.all([
           fetchCloudProjects(user.id),
           fetchCloudPhotos(user.id),
           fetchCloudFolders(user.id),
         ])
+
+        // クラウドから受け取った行も、ログイン中のユーザー本人のものだけを使う（RLSが効いていない場合の二重防御。
+        // 他ユーザーの行を、このユーザーのデータとして端末内に取り込まない）
+        const cloudProjects = fetchedProjects.filter((p) => p.user_id === user.id)
+        const cloudPhotos = fetchedPhotos.filter((p) => p.user_id === user.id)
+        const cloudFolders = fetchedFolders.filter((f) => f.user_id === user.id)
 
         const localProjects = useProjectStore.getState().projects
         const localPhotos = usePhotoStore.getState().photos

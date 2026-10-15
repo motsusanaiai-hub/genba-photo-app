@@ -1,6 +1,8 @@
 import { useAuthStore } from '@/store/authStore'
 import { usePhotoStore } from '@/store/photoStore'
 import { useFolderStore } from '@/store/folderStore'
+import { useProjectStore } from '@/store/projectStore'
+import { filterOwnedProjectPhotos, findOwnedProject, isOwnedPhoto, ownsRecord, resolveOwnerId } from '@/lib/ownership'
 import { photoStorage } from '@/lib/photoStorage'
 import { generateThumbnail, generateCompressedImage, resolveTakenAt } from '@/utils/imageUtils'
 import {
@@ -33,12 +35,21 @@ function insertSortOrderByCreatedAt(neighbors: Photo[], createdAt: string, fallb
 
 export function usePhotos(projectId: string) {
   const user = useAuthStore((s) => s.user)
+  const initialized = useAuthStore((s) => s.initialized)
+  const { projects } = useProjectStore()
   const { photos, addPhotos, updatePhoto, deletePhoto } = usePhotoStore()
   const { folders } = useFolderStore()
 
-  const projectPhotos = photos
-    .filter((p) => p.project_id === projectId)
-    .sort((a, b) => a.sort_order - b.sort_order)
+  // 同じ端末に前のユーザーのデータが残っていても、ログイン中のユーザー本人の工事案件・写真だけを扱う。
+  // 未ログイン・認証の確認前は ownerId が null になり、何も見えず・何も操作できない。
+  const ownerId = resolveOwnerId({ user, initialized })
+  const ownsProject = !!findOwnedProject(projects, projectId, ownerId)
+  const isMyPhoto = (photoId: string) =>
+    photos.some((p) => p.id === photoId && isOwnedPhoto(p, projects, ownerId))
+
+  const projectPhotos = filterOwnedProjectPhotos(photos, projects, projectId, ownerId).sort(
+    (a, b) => a.sort_order - b.sort_order,
+  )
 
   const maxSortOrder = projectPhotos.length
     ? Math.max(...projectPhotos.map((p) => p.sort_order))
@@ -51,6 +62,8 @@ export function usePhotos(projectId: string) {
     onProgress: (done: number, total: number) => void,
   ) => {
     const newPhotos: Photo[] = []
+    // 他人の（または存在しない）工事案件には、端末内にもクラウドにも保存しない
+    if (!ownerId || !ownsProject) return newPhotos
 
     for (let i = 0; i < items.length; i++) {
       const { file, phase, folderId } = items[i]
@@ -64,14 +77,14 @@ export function usePhotos(projectId: string) {
       let storagePath: string | null = null
       if (compressed) {
         await photoStorage.saveCompressed(id, compressed)
-        storagePath = await uploadCompressedToCloud(id, user?.id ?? '', compressed)
+        storagePath = await uploadCompressedToCloud(id, ownerId, compressed)
       }
 
       const now = new Date().toISOString()
       newPhotos.push({
         id,
         project_id: projectId,
-        user_id: user?.id ?? '',
+        user_id: ownerId,
         original_filename: file.name,
         file_size: file.size,
         width,
@@ -126,7 +139,9 @@ export function usePhotos(projectId: string) {
   }
 
   const removePhoto = async (photoId: string) => {
-    const photo = photos.find((p) => p.id === photoId)
+    // 本人の写真だけ削除する（IndexedDBの原本・圧縮画像、クラウドにも及ぼさない）
+    const photo = photos.find((p) => p.id === photoId && isOwnedPhoto(p, projects, ownerId))
+    if (!photo) return
 
     await Promise.all([
       photoStorage.remove(photoId),
@@ -134,7 +149,7 @@ export function usePhotos(projectId: string) {
     ])
     deletePhoto(photoId)
     await Promise.all([
-      photo?.storage_path ? removeCompressedFromCloud(photo.storage_path) : Promise.resolve(),
+      photo.storage_path ? removeCompressedFromCloud(photo.storage_path) : Promise.resolve(),
       deleteCloudPhoto(photoId),
     ])
   }
@@ -172,7 +187,9 @@ export function usePhotos(projectId: string) {
   //   同時に、previous_folder_idが現存するフォルダを指していればfolder_idへ復元し
   //   （＝元のフォルダへ自動復帰）、フォルダが削除済み・未設定なら未分類直下へ戻す。
   //   復元後はprevious_folder_idを都度クリアする。
-  const setPhaseForPhotos = async (orderedIds: string[], phase: Phase | null) => {
+  const setPhaseForPhotos = async (requestedIds: string[], phase: Phase | null) => {
+    // 本人の写真だけを対象にする（他人の写真IDが混ざっていても無視）
+    const orderedIds = requestedIds.filter(isMyPhoto)
     if (orderedIds.length === 0) return
 
     if (phase === null) {
@@ -261,18 +278,23 @@ export function usePhotos(projectId: string) {
   // 未分類タブ内でのフォルダ移動（施工前/中/後には影響しない）。
   // folderId=nullを渡すとフォルダなし（未分類直下）へ戻す。sort_orderは変更しない
   // （フォルダ内での並び順は既存のsort_orderをそのまま使うため）。
-  const moveToFolder = async (orderedIds: string[], folderId: string | null) => {
+  const moveToFolder = async (requestedIds: string[], folderId: string | null) => {
+    const orderedIds = requestedIds.filter(isMyPhoto)
     if (orderedIds.length === 0) return
+    // 移動先も本人のフォルダだけ
+    if (folderId !== null && !folders.some((f) => f.id === folderId && ownsRecord(ownerId, f))) return
     orderedIds.forEach((id) => updatePhoto(id, { folder_id: folderId }))
     await Promise.all(orderedIds.map((id) => updateCloudPhoto(id, { folder_id: folderId })))
   }
 
   const setComment = async (photoId: string, comment: string) => {
+    if (!isMyPhoto(photoId)) return
     updatePhoto(photoId, { comment })
     await updateCloudPhoto(photoId, { comment })
   }
 
   const setFloorLocation = async (photoId: string, data: { floor: string; location: string }) => {
+    if (!isMyPhoto(photoId)) return
     updatePhoto(photoId, data)
     await updateCloudPhoto(photoId, data)
   }

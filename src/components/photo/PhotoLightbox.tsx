@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { X, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'
 import { photoStorage } from '@/lib/photoStorage'
+import { isCurrentUsersPhoto } from '@/lib/exportGuard'
 import { loadPhotoDisplayUrl, refreshPhotoDisplayUrl } from '@/lib/cloudPhotoCache'
 import { PhaseBadge } from './PhaseBadge'
 import type { Photo } from '@/types/photo'
@@ -34,6 +35,12 @@ export function PhotoLightbox({ photo, photos, onClose, onChange, onDelete }: Pr
     setImageURL(null)
     setRetried(false)
     setLocalOriginal(false)
+
+    // 本人の写真以外は、端末内の画像（IndexedDB）にもクラウドにも取りに行かない
+    if (!isCurrentUsersPhoto(photo)) {
+      setLoading(false)
+      return
+    }
 
     photoStorage.getObjectURL(photo.id).then(async (url) => {
       if (cancelled) {
