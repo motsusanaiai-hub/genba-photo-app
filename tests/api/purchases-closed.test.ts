@@ -185,8 +185,13 @@ describe('写真出力API（create-genbafoto-job）の安全制限を維持し�
     expect(source).toContain("startsWith('Bearer ')")
     expect(source).toContain('auth.getUser(accessToken)')
     expect(source).toContain('Authorization: `Bearer ${accessToken}`')
-    expect(source).toMatch(/photoRows\.length !== photoIds\.length[\s\S]*?status\(403\)/)
-    expect(source).toMatch(/invalidStoragePath[\s\S]*?status\(409\)/)
+    // 所有者不一致（403）・未同期（409）などの認可は _lib/photoAccess.ts に分離した（署名の前に validatePhotoAccess を通す）
+    expect(source).toContain('validatePhotoAccess(')
+    expect(source.indexOf('validatePhotoAccess(')).toBeLessThan(source.indexOf('createSupabaseAdminClient(env'))
+    const access = readFileSync(path.join(ROOT, 'api/_lib/photoAccess.ts'), 'utf8')
+    expect(access).toMatch(/photoRows\.length !== requestedPhotoIds\.length/)
+    expect(access).toMatch(/status: 409/)
+    expect(access).toMatch(/status: 403/)
   })
 
   it('写真件数の上限（300件）と署名付きURLの有効期限が残っている', () => {
