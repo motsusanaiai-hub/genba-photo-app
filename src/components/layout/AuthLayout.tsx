@@ -1,4 +1,4 @@
-import { Outlet } from 'react-router-dom'
+import { Link, Outlet } from 'react-router-dom'
 import { Camera } from 'lucide-react'
 
 export function AuthLayout() {
@@ -13,6 +13,15 @@ export function AuthLayout() {
           <p className="text-muted-foreground text-sm">工事写真台帳を楽に作る</p>
         </div>
         <Outlet />
+        {/* 利用規約・プライバシーポリシー（ログイン画面・新規登録画面の共通リンク）。入力中のフォームを失わないよう別タブで開く。 */}
+        <nav className="mt-6 flex justify-center gap-4 text-xs text-muted-foreground" aria-label="規約">
+          <Link to="/terms" target="_blank" rel="noopener noreferrer" className="hover:text-foreground hover:underline">
+            利用規約
+          </Link>
+          <Link to="/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-foreground hover:underline">
+            プライバシーポリシー
+          </Link>
+        </nav>
       </div>
     </div>
   )

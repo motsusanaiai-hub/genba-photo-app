@@ -10,8 +10,13 @@ import { ProjectDetailPage } from '@/pages/project/ProjectDetailPage'
 import { ProjectEditPage } from '@/pages/project/ProjectEditPage'
 import { CheckoutSuccessPage } from '@/pages/billing/CheckoutSuccessPage'
 import { ProCheckoutSuccessPage } from '@/pages/billing/ProCheckoutSuccessPage'
+import { TermsPage } from '@/pages/legal/TermsPage'
+import { PrivacyPage } from '@/pages/legal/PrivacyPage'
 
 export const router = createBrowserRouter([
+  // 利用規約・プライバシーポリシー：ログイン不要の公開ページ（AuthGuard の外）。直接URLでも開ける。
+  { path: '/terms', element: <TermsPage /> },
+  { path: '/privacy', element: <PrivacyPage /> },
   {
     path: '/auth',
     element: <AuthLayout />,

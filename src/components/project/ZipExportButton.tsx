@@ -160,6 +160,9 @@ export function ZipExportButton({ project, photos }: Props) {
                 </div>
               </button>
             ))}
+            <p className="border-t px-3 py-2 text-xs leading-snug text-muted-foreground">
+              元画像は、この端末に残っている分だけ出力できます。
+            </p>
           </div>
         </>
       )}

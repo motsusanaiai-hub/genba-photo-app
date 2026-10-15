@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { FolderOpen, Plus } from 'lucide-react'
 import { useProjects } from '@/hooks/useProjects'
 import { ProjectCard } from '@/components/project/ProjectCard'
@@ -54,7 +54,34 @@ export function DashboardPage() {
         {/* 広告枠（全ユーザーに表示する自社広告。現場フォトは広告付きの無料アプリ）。
             広告の表示場所はダッシュボードのみ。モバイルFAB（bottom-20〜136px帯）と重ならないよう
             下に余白を確保する。購入・アップグレード・契約管理の導線は置かない。 */}
-        <AdSlot className="mt-6 mb-24 lg:mb-6" />
+        <AdSlot className="mt-6" />
+
+        {/* 写真の保存についての短い説明と、規約へのリンク。モバイルFAB（bottom-20〜136px帯）と重ならないよう下に余白を確保する。 */}
+        <footer className="mx-auto mb-24 mt-6 w-full max-w-2xl space-y-2 text-xs text-muted-foreground lg:mb-6">
+          <details>
+            <summary className="cursor-pointer select-none py-1">写真の保存について</summary>
+            <div className="space-y-1 pb-1 pt-1 leading-relaxed">
+              <p>元の写真は、この端末のブラウザ内にだけ保存されます。大切な写真は、別の場所にも保存してください。</p>
+              <p>
+                小さくした写真（圧縮画像）は、クラウドに保存されます。現在は公開URL方式のため、URLを知っている人は、
+                ログインしなくても見ることができます。URLを共有しないでください。
+              </p>
+              <p>
+                <Link to="/privacy" target="_blank" rel="noopener noreferrer" className="underline">
+                  くわしくはプライバシーポリシー
+                </Link>
+              </p>
+            </div>
+          </details>
+          <nav className="flex gap-4" aria-label="規約">
+            <Link to="/terms" target="_blank" rel="noopener noreferrer" className="hover:text-foreground hover:underline">
+              利用規約
+            </Link>
+            <Link to="/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-foreground hover:underline">
+              プライバシーポリシー
+            </Link>
+          </nav>
+        </footer>
       </div>
 
       {/* スマホ用 FAB */}

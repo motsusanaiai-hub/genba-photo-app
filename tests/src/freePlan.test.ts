@@ -23,6 +23,8 @@ function sourceFiles(dir: string): string[] {
 const rel = (file: string) => path.relative(ROOT, file).split(path.sep).join('/')
 
 // 決済完了画面（過去のテスト決済・既存URL向け）と、将来の再利用のために残した購入関連コンポーネント。
+// 利用規約・プライバシーポリシー（src/pages/legal）は、「有料プランの新規販売を終了した」ことを説明するため、
+// 料金に関する語を含んでよい（内容は legal.test.ts で確認する）。
 const BILLING_FILES = [
   'src/components/billing/RemoveAdsButton.tsx',
   'src/components/billing/ProCheckoutButton.tsx',
@@ -44,8 +46,9 @@ describe('ダッシュボード', () => {
     expect(source).toMatch(/<AdSlot\b/)
   })
 
-  it('広告にモバイルのFABと重ならない下余白を付けている', () => {
-    expect(source).toMatch(/<AdSlot className="[^"]*mb-24[^"]*lg:mb-6[^"]*"/)
+  it('広告の下の案内（フッター）に、モバイルのFABと重ならない下余白を付けている', () => {
+    expect(source).toMatch(/<AdSlot\b/)
+    expect(source).toMatch(/<footer className="[^"]*mb-24[^"]*lg:mb-6[^"]*"/)
   })
 
   it('新規作成ボタン・FABは工事案件数に関係なく新規作成画面へ遷移する', () => {
@@ -75,7 +78,9 @@ describe('プラン判定の案内文', () => {
 })
 
 describe('一般ユーザー向け画面に料金・購入の表示がない', () => {
-  const generalFiles = sourceFiles(path.join(ROOT, 'src')).filter((file) => !BILLING_FILES.includes(rel(file)))
+  const generalFiles = sourceFiles(path.join(ROOT, 'src')).filter(
+    (file) => !BILLING_FILES.includes(rel(file)) && !rel(file).startsWith('src/pages/legal/'),
+  )
 
   it('料金・購入・アップグレードの文言が、購入関連ファイル以外に無い', () => {
     const found = generalFiles.filter((file) =>
