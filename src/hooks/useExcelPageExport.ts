@@ -16,7 +16,7 @@ interface Options<T> {
    */
   listPages: (photos: Photo[]) => ExcelPageInfo<T>[] | Promise<ExcelPageInfo<T>[]>
   /** そのレイアウトの実際の生成関数（generateExcel等）。pageを渡さなければ従来通り全ページ出力する。 */
-  generate: (project: Project, photos: Photo[], page?: ExcelPageInfo<T>) => Promise<void>
+  generate: (project: Project, photos: Photo[], page?: ExcelPageInfo<T>) => Promise<unknown>
 }
 
 /**

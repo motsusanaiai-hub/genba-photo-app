@@ -1,4 +1,5 @@
 import { requireExportTargets } from '@/lib/exportGuard'
+import { completeExcelExport, newImageReport, type ExcelExportResult, type ImageReport } from '@/lib/excelImageReport'
 import { Workbook } from 'exceljs'
 import type { Photo } from '@/types/photo'
 import type { Project } from '@/types/project'
@@ -7,7 +8,7 @@ import {
   BOX,
   tc,
   buildCoverSheet,
-  embedImage,
+  embedImageTracked,
   triggerDownload,
   colWidthToPx,
   rowHeightToPx,
@@ -103,11 +104,15 @@ export async function generateOneColumnExcel(
   project: Project,
   photos: Photo[],
   page?: ExcelPageInfo<Photo>,
-): Promise<void> {
+): Promise<ExcelExportResult> {
   const target = requireExportTargets(project, photos)
-  const wb = await buildOneColumnWorkbook(target.project, target.photos, page)
+  const report = newImageReport()
+  const wb = await buildOneColumnWorkbook(target.project, target.photos, page, report)
   const buffer = await wb.xlsx.writeBuffer()
-  triggerDownload(buffer as ArrayBuffer, excelLedgerFileName(project.name, 'large'))
+  // 全ての写真が取得できなかった場合は、空欄だけのExcelをダウンロードしない
+  return completeExcelExport(report, () =>
+    triggerDownload(buffer as ArrayBuffer, excelLedgerFileName(project.name, 'large')),
+  )
 }
 
 /**
@@ -119,6 +124,7 @@ export async function buildOneColumnWorkbook(
   project: Project,
   photos: Photo[],
   page?: ExcelPageInfo<Photo>,
+  report?: ImageReport,
 ): Promise<Workbook> {
   const wb = new Workbook()
   wb.creator = '現場フォト'
@@ -134,15 +140,15 @@ export async function buildOneColumnWorkbook(
 
     // シートをまたいで続き番号にするため、前のシートの枚数を累積オフセットとして渡す
     let photoOffset = 0
-    await buildOneColumnSheet(wb, beforePhotos, '施工前', photoOffset)
+    await buildOneColumnSheet(wb, beforePhotos, '施工前', photoOffset, report)
     photoOffset += beforePhotos.length
-    await buildOneColumnSheet(wb, duringPhotos, '施工中', photoOffset)
+    await buildOneColumnSheet(wb, duringPhotos, '施工中', photoOffset, report)
     photoOffset += duringPhotos.length
-    await buildOneColumnSheet(wb, afterPhotos,  '施工後', photoOffset)
+    await buildOneColumnSheet(wb, afterPhotos,  '施工後', photoOffset, report)
   } else {
     // 指定ページ1枚分のみ。表紙の写真枚数は「このExcelに実際に含まれる枚数」にする
     buildCoverSheet(wb, project, page.items.length)
-    await buildOneColumnSheet(wb, page.items, PHASE_SHEET_NAMES[page.groupIndex], page.startNo - 1)
+    await buildOneColumnSheet(wb, page.items, PHASE_SHEET_NAMES[page.groupIndex], page.startNo - 1, report)
   }
 
   return wb
@@ -155,6 +161,7 @@ async function buildOneColumnSheet(
   photos: Photo[],
   sheetName: string,
   photoOffset: number,
+  report?: ImageReport,
 ): Promise<void> {
   const ws = wb.addWorksheet(sheetName)
   ws.columns = COL_WIDTHS.map((width) => ({ width }))
@@ -222,12 +229,12 @@ async function buildOneColumnSheet(
 
     // 写真埋め込み（写真がある場合のみ）
     if (photo) {
-      await embedImage(wb, ws, photo, {
+      await embedImageTracked(wb, ws, photo, {
         col0: PHOTO_COL_START - 1, row0: rNo - 1,
         widthPx:  colWidthToPx(PHOTO_COLS),
         heightPx: PHOTO_FRAME_HEIGHT_PX,
         rowHeightsPx: PHOTO_ROW_HEIGHTS_PX,
-      })
+      }, `No.${photoOffset + i + 1}`, report)
     }
 
     // 3段ごとに改ページ。最後の段は除く。

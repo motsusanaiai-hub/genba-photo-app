@@ -1,4 +1,5 @@
 import { requireExportTargets } from '@/lib/exportGuard'
+import { completeExcelExport, newImageReport, type ExcelExportResult, type ImageReport } from '@/lib/excelImageReport'
 import { Workbook } from 'exceljs'
 import type { Worksheet } from 'exceljs'
 import type { Photo } from '@/types/photo'
@@ -11,7 +12,7 @@ import {
   STANDARD_PAIR_LAYOUT,
   tc,
   buildCoverSheet,
-  embedImage,
+  embedImageTracked,
   triggerDownload,
   colWidthToPx,
   rowHeightToPx,
@@ -100,11 +101,15 @@ export async function generateBeforeAfterExcel(
   project: Project,
   photos: Photo[],
   page?: ExcelPageInfo<Pair>,
-): Promise<void> {
+): Promise<ExcelExportResult> {
   const target = requireExportTargets(project, photos)
-  const wb = await buildBeforeAfterWorkbook(target.project, target.photos, page)
+  const report = newImageReport()
+  const wb = await buildBeforeAfterWorkbook(target.project, target.photos, page, report)
   const buffer = await wb.xlsx.writeBuffer()
-  triggerDownload(buffer as ArrayBuffer, excelLedgerFileName(project.name, 'beforeAfter'))
+  // 全ての写真が取得できなかった場合は、空欄だけのExcelをダウンロードしない
+  return completeExcelExport(report, () =>
+    triggerDownload(buffer as ArrayBuffer, excelLedgerFileName(project.name, 'beforeAfter')),
+  )
 }
 
 /**
@@ -117,6 +122,7 @@ export async function buildBeforeAfterWorkbook(
   project: Project,
   photos: Photo[],
   page?: ExcelPageInfo<Pair>,
+  report?: ImageReport,
 ): Promise<Workbook> {
   const pairs = pairBeforeAfter(photos)
 
@@ -128,13 +134,13 @@ export async function buildBeforeAfterWorkbook(
     // 従来通り：全ページ（Pro向け。既存コードと同一の挙動。pairOffset=0固定）
     const totalPhotos = countPhotosInPairs(pairs)
     buildCoverSheet(wb, project, totalPhotos, '施工前後写真台帳')
-    await buildBeforeAfterSheet(wb, pairs)
+    await buildBeforeAfterSheet(wb, pairs, 0, report)
   } else {
     // 指定ページ（PAIRS_PER_PAGE組）分のみ。表紙の写真枚数は
     // 「このExcelに実際に含まれる枚数」（ペア数ではなく写真枚数）にする
     const pagePhotoCount = countPhotosInPairs(page.items)
     buildCoverSheet(wb, project, pagePhotoCount, '施工前後写真台帳')
-    await buildBeforeAfterSheet(wb, page.items, page.startNo - 1)
+    await buildBeforeAfterSheet(wb, page.items, page.startNo - 1, report)
   }
 
   return wb
@@ -147,7 +153,12 @@ export async function buildBeforeAfterWorkbook(
  * 省略時は0で、全ページ出力（Pro）時は常にpairs全件＋pairOffset=0のため、
  * 既存の「i+1」という採番と完全に同じ結果になる。
  */
-async function buildBeforeAfterSheet(wb: Workbook, pairs: Pair[], pairOffset = 0): Promise<void> {
+async function buildBeforeAfterSheet(
+  wb: Workbook,
+  pairs: Pair[],
+  pairOffset = 0,
+  report?: ImageReport,
+): Promise<void> {
   const ws = wb.addWorksheet('施工前後')
   // A＝余白 / B＝施工前 / C＝施工後 / D＝余白（上の「列構成・印刷倍率」参照）
   ws.columns = [{ width: SPACER_W }, { width: COL_W }, { width: COL_W }, { width: SPACER_W }]
@@ -217,8 +228,8 @@ async function buildBeforeAfterSheet(wb: Workbook, pairs: Pair[], pairOffset = 0
         widthPx:  colWidthToPx(COL_W),
         heightPx: rowHeightToPx(H_IMAGE),
       }
-      if (before) await embedImage(wb, ws, before, { col0: COL_BEFORE - 1, ...frameBase })
-      if (after)  await embedImage(wb, ws, after,  { col0: COL_AFTER - 1,  ...frameBase })
+      if (before) await embedImageTracked(wb, ws, before, { col0: COL_BEFORE - 1, ...frameBase }, `施工前 No.${pairOffset + i + 1}`, report)
+      if (after)  await embedImageTracked(wb, ws, after,  { col0: COL_AFTER - 1,  ...frameBase }, `施工後 No.${pairOffset + i + 1}`, report)
     }
 
     // 3組ごとに改ページ（このページの最終行＝3組目のコメント行の後）。最後のページは除く。

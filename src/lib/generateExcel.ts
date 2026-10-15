@@ -1,4 +1,5 @@
 import { requireExportTargets } from '@/lib/exportGuard'
+import { completeExcelExport, newImageReport, type ExcelExportResult, type ImageReport } from '@/lib/excelImageReport'
 import { Workbook } from 'exceljs'
 import type { Border, Worksheet, Anchor } from 'exceljs'
 import type { Photo } from '@/types/photo'
@@ -249,11 +250,15 @@ export async function generateExcel(
   project: Project,
   photos: Photo[],
   page?: ExcelPageInfo<Photo>,
-): Promise<void> {
+): Promise<ExcelExportResult> {
   const target = requireExportTargets(project, photos)
-  const wb = await buildExcelWorkbook(target.project, target.photos, page)
+  const report = newImageReport()
+  const wb = await buildExcelWorkbook(target.project, target.photos, page, report)
   const buffer = await wb.xlsx.writeBuffer()
-  triggerDownload(buffer as ArrayBuffer, excelLedgerFileName(project.name, 'standard'))
+  // 全ての写真が取得できなかった場合は、空欄だけのExcelをダウンロードしない
+  return completeExcelExport(report, () =>
+    triggerDownload(buffer as ArrayBuffer, excelLedgerFileName(project.name, 'standard')),
+  )
 }
 
 /**
@@ -266,6 +271,7 @@ export async function buildExcelWorkbook(
   project: Project,
   photos: Photo[],
   page?: ExcelPageInfo<Photo>,
+  report?: ImageReport,
 ): Promise<Workbook> {
   const wb = new Workbook()
   wb.creator = '現場フォト'
@@ -281,15 +287,15 @@ export async function buildExcelWorkbook(
 
     // シートをまたいで続き番号にするため、前のシートの枚数を累積オフセットとして渡す
     let photoOffset = 0
-    await buildPhotoSheet(wb, beforePhotos, '施工前', photoOffset)
+    await buildPhotoSheet(wb, beforePhotos, '施工前', photoOffset, report)
     photoOffset += beforePhotos.length
-    await buildPhotoSheet(wb, duringPhotos, '施工中', photoOffset)
+    await buildPhotoSheet(wb, duringPhotos, '施工中', photoOffset, report)
     photoOffset += duringPhotos.length
-    await buildPhotoSheet(wb, afterPhotos,  '施工後', photoOffset)
+    await buildPhotoSheet(wb, afterPhotos,  '施工後', photoOffset, report)
   } else {
     // 指定ページ1枚分のみ。表紙の写真枚数は「このExcelに実際に含まれる枚数」にする
     buildCoverSheet(wb, project, page.items.length)
-    await buildPhotoSheet(wb, page.items, PHASE_SHEET_NAMES[page.groupIndex], page.startNo - 1)
+    await buildPhotoSheet(wb, page.items, PHASE_SHEET_NAMES[page.groupIndex], page.startNo - 1, report)
   }
 
   return wb
@@ -356,6 +362,7 @@ async function buildPhotoSheet(
   photos: Photo[],
   sheetName: string,
   photoOffset: number,
+  report?: ImageReport,
 ): Promise<void> {
   const ws = wb.addWorksheet(sheetName)
   ws.columns = [{ width: COL_W }, { width: COL_W }]
@@ -413,16 +420,16 @@ async function buildPhotoSheet(
     // 写真埋め込み（写真がある場合のみ）
     const row0 = i * ROWS_PER_PAIR + 1  // 0-indexed（画像配置用）
     if (left) {
-      await embedImage(wb, ws, left, {
+      await embedImageTracked(wb, ws, left, {
         col0: 0, row0,
         widthPx: colWidthToPx(COL_W), heightPx: rowHeightToPx(H_IMAGE),
-      })
+      }, `No.${photoOffset + i * 2 + 1}`, report)
     }
     if (right) {
-      await embedImage(wb, ws, right, {
+      await embedImageTracked(wb, ws, right, {
         col0: 1, row0,
         widthPx: colWidthToPx(COL_W), heightPx: rowHeightToPx(H_IMAGE),
-      })
+      }, `No.${photoOffset + i * 2 + 2}`, report)
     }
 
     // 3段（6枚）ごとに改ページ（各組の最終行＝コメント行の後）。最後のペアは除く。
@@ -462,10 +469,10 @@ export async function embedImage(
   ws: Worksheet,
   photo: Photo,
   frame: CellFrame,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const base64 = await photoToJpegBase64(photo)
-    if (!base64) return
+    if (!base64) return false
 
     const imageId = wb.addImage({ base64, extension: 'jpeg' })
     const { from, to } = calcImagePlacement(frame, photo.width, photo.height)
@@ -475,9 +482,30 @@ export async function embedImage(
       br: to as unknown as Anchor,
       editAs: 'oneCell',
     })
+    return true
   } catch {
-    // 画像埋め込み失敗は無視して出力を継続
+    // 画像の埋め込みに失敗しても出力は継続する（その枠は空欄になる）。
+    // 失敗は呼び出し側が記録して利用者へ知らせる
+    return false
   }
+}
+
+/**
+ * embedImage に、取得結果の記録を加えたもの（標準・大判・施工前後で共通）。
+ * label は Excel 上の表記（No.12 など）。埋め込めなかった写真を report.missing に残す。
+ */
+export async function embedImageTracked(
+  wb: Workbook,
+  ws: Worksheet,
+  photo: Photo,
+  frame: CellFrame,
+  label: string,
+  report?: ImageReport,
+): Promise<void> {
+  const ok = await embedImage(wb, ws, photo, frame)
+  if (!report) return
+  report.total++
+  if (!ok) report.missing.push({ photoId: photo.id, label })
 }
 
 // ─── 画像変換ユーティリティ ───────────────────────────────────
@@ -498,22 +526,32 @@ async function photoToJpegBase64(photo: Photo): Promise<string | null> {
  * 3rd: 原本から 600px にリサイズ / 4th: thumbnail_data_url
  */
 export async function getPhotoJpegBlob(photo: Photo): Promise<Blob | null> {
+  // 各段階が例外で失敗しても、次の段階で取得できれば成功として扱う（取得の優先順位は変えない）
   try {
     const compressedBlob = await photoStorage.getCompressedBlob(photo.id)
     if (compressedBlob) return compressedBlob
+  } catch { /* 次の取得方法へ */ }
 
-    if (photo.storage_path) {
+  if (photo.storage_path) {
+    try {
       const cloudBlob = await downloadCloudCompressed(photo.storage_path)
       if (cloudBlob) return cloudBlob
-    }
+    } catch { /* 次の取得方法へ */ }
+  }
 
+  try {
     const url = await photoStorage.getObjectURL(photo.id)
     if (url) {
-      const blob = await urlToJpegBlob(url, 600)
-      URL.revokeObjectURL(url)
-      return blob
+      try {
+        const blob = await urlToJpegBlob(url, 600)
+        if (blob) return blob
+      } finally {
+        URL.revokeObjectURL(url)
+      }
     }
+  } catch { /* 次の取得方法へ */ }
 
+  try {
     return await dataUrlToJpegBlob(photo.thumbnail_data_url)
   } catch {
     return null

@@ -5,6 +5,7 @@ import { ExcelPageSelectModal } from './ExcelPageSelectModal'
 import { useExcelPageExport } from '@/hooks/useExcelPageExport'
 import { identityPhotos, pairsToPhotos, toGenbafotoPage } from '@/lib/genbafotoPageItems'
 import type { ExcelPageInfo } from '@/lib/generateExcel'
+import { buildExcelPhotoNotice, type ExcelExportResult, type ExcelPhotoNotice } from '@/lib/excelImageReport'
 import type { Pair } from '@/lib/generateBeforeAfterExcel'
 import type { GenbafotoTemplateType } from '@/lib/generateGenbafotoJob'
 import type { ExcelExportMode } from '@/lib/excelExportMode'
@@ -23,7 +24,7 @@ interface LayoutConfig<T> {
   templateType: GenbafotoTemplateType
   listPages: (photos: Photo[]) => Promise<ExcelPageInfo<T>[]>
   /** 標準モード（ブラウザ内の ExcelJS）での生成 */
-  generateStandard: (project: Project, photos: Photo[], page?: ExcelPageInfo<T>) => Promise<void>
+  generateStandard: (project: Project, photos: Photo[], page?: ExcelPageInfo<T>) => Promise<ExcelExportResult>
   /** Excel直接作成モードで .genbafoto に渡す写真へ変換（ページ選択時） */
   pageItemsToPhotos: (items: T[]) => Photo[]
   formatPageLabel: (page: ExcelPageInfo<T>, index: number) => string
@@ -80,7 +81,13 @@ export function ExcelExportButton({ layout, ...rest }: Props) {
   return <LayoutExportButton config={BEFORE_AFTER} {...rest} />
 }
 
-type Message = { type: 'success' | 'error'; text: string; offerStandard: boolean }
+type Message = {
+  type: 'success' | 'error' | 'warning'
+  text: string
+  offerStandard: boolean
+  /** 写真の取得結果の通知（失敗枚数・対象のNo.）。あるときは自動で消さず、確認して閉じる */
+  notice?: ExcelPhotoNotice
+}
 
 interface AnchorPos {
   top: number
@@ -114,7 +121,8 @@ function LayoutExportButton<T>({
     )
     setMessage(next)
     if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => setMessage(null), ms)
+    // ms=0 は自動で閉じない（対象の写真番号を確認できるようにする）
+    timerRef.current = ms > 0 ? setTimeout(() => setMessage(null), ms) : null
   }
 
   useEffect(() => () => {
@@ -126,7 +134,14 @@ function LayoutExportButton<T>({
     generate: async (project, photos, page) => {
       setMessage(null)
       if (mode === 'standard') {
-        await config.generateStandard(project, photos, page)
+        const result = await config.generateStandard(project, photos, page)
+        // 写真が取得できなかった場合は、失敗枚数と対象のNo.を知らせる（全件成功なら従来どおり通知なし）
+        const notice = buildExcelPhotoNotice(result)
+        if (notice) {
+          showMessage({ type: notice.kind, text: notice.title, offerStandard: false, notice }, 0)
+          // 全件失敗はファイルを作っていない。useExcelPageExport 側の status も 'error' にする
+          if (notice.kind === 'error') throw new Error(notice.title)
+        }
         return
       }
 
@@ -192,11 +207,28 @@ function LayoutExportButton<T>({
             'fixed z-[71] rounded-lg shadow-lg px-3 py-2 w-72 max-w-[calc(100vw-16px)] text-xs leading-snug border ' +
             (message.type === 'success'
               ? 'bg-green-50 border-green-300 text-green-900'
-              : 'bg-red-50 border-red-300 text-red-900')
+              : message.type === 'warning'
+                ? 'bg-amber-50 border-amber-300 text-amber-900'
+                : 'bg-red-50 border-red-300 text-red-900')
           }
           style={anchor ? { top: anchor.top, left: anchor.left } : { top: 64, right: 8 }}
         >
           <p>{message.text}</p>
+          {message.notice && (
+            <>
+              <p className="mt-1 font-medium">{message.notice.countLine}</p>
+              {message.notice.labels.length > 0 && (
+                <p className="mt-1">
+                  対象：
+                  <span className="block max-h-32 overflow-y-auto break-words">{message.notice.labels.join('、')}</span>
+                </p>
+              )}
+              <p className="mt-1">{message.notice.hint}</p>
+              <button type="button" className="mt-2 underline font-medium" onClick={() => setMessage(null)}>
+                閉じる
+              </button>
+            </>
+          )}
           {message.offerStandard && (
             <button
               type="button"
