@@ -288,7 +288,7 @@ describe('ライトボックス・オーバーレイ（PhotoDisplayController）
     const h = displayHarness()
     await new PhotoDisplayController(photo({ thumbnail_data_url: 'data:thumb' }), h.deps, h.onChange).load()
     expect(h.states.at(-1)?.url).toBe('data:thumb')
-    expect(h.calls).toEqual(['original', 'display'])
+    expect(h.calls).toEqual(['original'])
   })
 
   it('原本もサムネイルも無ければ、端末内の圧縮画像を使い、クラウドへは行かない', async () => {
