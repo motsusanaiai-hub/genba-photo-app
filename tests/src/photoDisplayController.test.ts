@@ -78,9 +78,9 @@ describe('通常表示', () => {
     const c = new PhotoDisplayController(photo('A', { storage_path: null }), h.deps, s.onChange)
     const loading = c.load()
     h.local.get('A')!.resolve(null)
-    await flush()
-    h.display.get('A')!.resolve(null)
     await loading
+    // storage_path が無ければクラウドへは通信しない
+    expect(h.display.has('A')).toBe(false)
     expect(s.last).toEqual({ url: null, loading: false, localOriginal: false })
   })
 
@@ -222,7 +222,7 @@ describe('取得失敗後の再取得（署名付きURLの作り直し）', () =
     expect(s.last.url).toBeNull()
   })
 
-  it('端末内の原本の読み込み失敗は、署名付きURLの再取得をしない', async () => {
+  it('端末内の原本の読み込みに失敗したら、署名付きURLの再取得ではなく、次の段階（クラウド）を試す', async () => {
     const h = harness()
     const s = screen()
     const refresh = vi.spyOn(h.deps, 'refreshDisplayUrl')
@@ -230,9 +230,13 @@ describe('取得失敗後の再取得（署名付きURLの作り直し）', () =
     const loading = c.load()
     h.local.get('A')!.resolve('blob:A')
     await loading
-    await c.handleError()
+    const fallback = c.handleError()
+    await flush()
+    h.local.get('A')!.resolve(null)
+    h.display.get('A')!.resolve('cloud-A')
+    await fallback
     expect(refresh).not.toHaveBeenCalled()
-    expect(s.last.url).toBeNull()
+    expect(s.last.url).toBe('cloud-A')
   })
 })
 
