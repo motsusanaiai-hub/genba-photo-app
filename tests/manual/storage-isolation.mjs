@@ -19,6 +19,7 @@
 import { createClient } from '@supabase/supabase-js'
 import readline from 'node:readline'
 import { pathToFileURL } from 'node:url'
+import { randomUUID } from 'node:crypto'
 
 // ─── 固定値（staging のみ） ─────────────────────────────────────────────
 export const STAGING_REF = 'jhlyudtuawukojymylmr'
@@ -115,6 +116,84 @@ export function classifyAllowed({ gotData, error }) {
   return 'fail'
 }
 
+// ─── 公開URL（認証なし）の観察と判定 ───────────────────────────────────────
+// HTTP ステータスだけでなく、Content-Type・JPEG の先頭バイト・キャッシュ関連ヘッダー・リダイレクトの有無を見る。
+// 写真データの内容、URL、パスは、返り値にも画面にも含めない（先頭 3 バイトが JPEG かどうかの真偽だけを返す）。
+
+const CACHE_HEADER_NAMES = ['cf-cache-status', 'x-cache', 'age', 'cache-control']
+
+/** 認証なしで公開URLに GET し、観察結果を返す。ヘッダーは一切付けず、リダイレクトは追従しない。 */
+export async function probePublicUrl(url, fetchImpl = fetch) {
+  let response
+  try {
+    response = await fetchImpl(url, { method: 'GET', redirect: 'manual' })
+  } catch {
+    return { networkError: true }
+  }
+  const status = response.status
+  const redirected = status >= 300 && status < 400
+  const contentType = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase() || null
+  const cache = {}
+  for (const name of CACHE_HEADER_NAMES) {
+    const value = response.headers.get(name)
+    if (value !== null) cache[name] = value.slice(0, 60)
+  }
+  // 先頭 3 バイトだけを読み、JPEG（FF D8 FF）かどうかだけを判定する。内容は保持しない。
+  let isJpeg = false
+  try {
+    const reader = response.body?.getReader()
+    if (reader) {
+      const head = []
+      while (head.length < 3) {
+        const { done, value } = await reader.read()
+        if (done) break
+        for (const byte of value) head.push(byte)
+      }
+      isJpeg = head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff
+      await reader.cancel()
+    }
+  } catch {
+    isJpeg = false
+  }
+  return { networkError: false, status, redirected, contentType, isJpeg, cache }
+}
+
+/** 公開URLの観察結果を分類する。200 かつ JPEG → fail、200 で画像でない／リダイレクト／不明 → inconclusive、4xx → pass。 */
+export function classifyPublicObservation(obs) {
+  if (!obs || obs.networkError) return 'inconclusive'
+  if (obs.redirected) return 'inconclusive'
+  if (obs.status === 200) return obs.isJpeg ? 'fail' : 'inconclusive'
+  if (DENIED_STATUSES.has(obs.status)) return 'pass'
+  return 'inconclusive'
+}
+
+const SEVERITY = { pass: 0, inconclusive: 1, fail: 2 }
+/** 2 つの分類のうち、より問題のある方（fail > inconclusive > pass） */
+export function worseOf(a, b) {
+  return SEVERITY[a] >= SEVERITY[b] ? a : b
+}
+
+/** 画面表示用の 1 行（URL・パス・内容は含めない） */
+export function describeObservation(label, obs) {
+  if (!obs || obs.networkError) return `${label}：通信できませんでした`
+  const cacheText = Object.entries(obs.cache)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(', ')
+  return (
+    `${label}：HTTP ${obs.status} / Content-Type=${obs.contentType ?? '不明'} / JPEG画像=${obs.isJpeg ? 'はい' : 'いいえ'}` +
+    ` / リダイレクト=${obs.redirected ? 'あり' : 'なし'} / キャッシュ関連=${cacheText || 'なし'}`
+  )
+}
+
+/** 通常URLとキャッシュ切り分けURLの結果が異なるときの説明（キャッシュと断定はしない） */
+export function cacheNote(plainResult, bustedResult) {
+  if (plainResult === bustedResult) return null
+  return (
+    '通常URLとキャッシュ切り分けURLで結果が異なります。CDNなどのキャッシュが影響している可能性があります' +
+    '（クエリの追加だけでキャッシュを確実に回避できるとは限らないため、断定はできません）。'
+  )
+}
+
 export function overallResult(r) {
   const security = [r.bDownload, r.bSigned, r.publicUrl]
   if (security.includes('fail')) return 'FAIL'
@@ -204,6 +283,7 @@ async function run() {
 
   const result = { aDownload: 'inconclusive', aSigned: 'inconclusive', bDownload: 'inconclusive', bSigned: 'inconclusive', publicUrl: 'inconclusive' }
   const notes = []
+  const details = []
   const clientA = newClient(anonKey)
   const clientB = newClient(anonKey)
 
@@ -261,24 +341,26 @@ async function run() {
     }
 
     // ── TEST 3：認証なしの公開 URL（拒否が期待結果）。発行済みの署名URLは使わない ──
-    try {
-      const response = await fetch(`${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}`, { method: 'GET' })
-      const status = response.status
-      await response.body?.cancel()
-      if (status === 200) result.publicUrl = 'fail'
-      else if (DENIED_STATUSES.has(status)) result.publicUrl = 'pass'
-      else result.publicUrl = 'inconclusive'
-    } catch {
-      result.publicUrl = 'inconclusive'
-    }
-    return { result, notes }
+    //   通常URLと、キャッシュ切り分け用の無関係なクエリを付けたURLの 2 回を比較する（どちらも認証ヘッダーなし）。
+    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}`
+    const plain = await probePublicUrl(publicUrl)
+    const busted = await probePublicUrl(`${publicUrl}?cb=${randomUUID()}`)
+    const plainResult = classifyPublicObservation(plain)
+    const bustedResult = classifyPublicObservation(busted)
+    result.publicUrl = worseOf(plainResult, bustedResult)
+    details.push(describeObservation('通常URL', plain))
+    details.push(describeObservation('キャッシュ切り分けURL', busted))
+    const note = cacheNote(plainResult, bustedResult)
+    if (note) notes.push(note)
+    if (plain.redirected || busted.redirected) notes.push('公開URLがリダイレクトされました。リダイレクト先は追従していません')
+    return { result, notes, details }
   } finally {
     // この端末内の状態だけを消す（scope: local）。サーバー側の他のログインは切らない
     await Promise.allSettled([clientA.auth.signOut({ scope: 'local' }), clientB.auth.signOut({ scope: 'local' })])
   }
 }
 
-function printReport({ result, notes }) {
+function printReport({ result, notes, details = [] }) {
   console.log('TEST 1')
   console.log('  A本人のdownload：' + LABEL[result.aDownload])
   console.log('  A本人の署名URL発行：' + LABEL[result.aSigned])
@@ -287,6 +369,7 @@ function printReport({ result, notes }) {
   console.log('  Bによる署名URL発行：' + LABEL[result.bSigned])
   console.log('TEST 3')
   console.log('  公開URLへのアクセス：' + LABEL[result.publicUrl])
+  for (const line of details) console.log('    ' + line)
   const overall = overallResult(result)
   console.log('\n総合判定：' + overall)
   for (const note of notes) console.log('注意：' + note)
@@ -341,8 +424,41 @@ function selftest() {
   check('総合: A 本人が失敗 → INCONCLUSIVE（対照が成立しない）', overallResult({ ...ok, aDownload: 'fail' }) === 'INCONCLUSIVE')
   check('総合: 通信障害が混在 → INCONCLUSIVE', overallResult({ ...ok, bSigned: 'inconclusive' }) === 'INCONCLUSIVE')
   check('総合: 拒否の失敗と他の不明が混在 → FAIL（セキュリティ上の問題を優先）', overallResult({ ...ok, bDownload: 'fail', aSigned: 'inconclusive' }) === 'FAIL')
-  console.log(failed === 0 ? '\n自己検査: すべて OK（ネットワークには接続していません）' : `\n自己検査: ${failed} 件 NG`)
-  return failed === 0 ? 0 : 1
+  // 公開URLの観察（偽の fetch を使う。ネットワークには接続しない）
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46])
+  const fake = (status, headers, body) => async () => new Response(body, { status, headers })
+  return selftestPublic({ check, fake, JPEG }).then(() => {
+    console.log(failed === 0 ? '\n自己検査: すべて OK（ネットワークには接続していません）' : `\n自己検査: ${failed} 件 NG`)
+    return failed === 0 ? 0 : 1
+  })
+}
+
+async function selftestPublic({ check, fake, JPEG }) {
+  const jpegHit = await probePublicUrl('https://example.invalid/a', fake(200, { 'content-type': 'image/jpeg', 'cf-cache-status': 'HIT', age: '120' }, JPEG))
+  check('公開URL: 200 + JPEG → 観察で JPEG と判定', jpegHit.status === 200 && jpegHit.isJpeg === true && jpegHit.contentType === 'image/jpeg')
+  check('公開URL: キャッシュ関連ヘッダーを取得する', jpegHit.cache['cf-cache-status'] === 'HIT' && jpegHit.cache.age === '120')
+  check('公開URL: 200 + JPEG → FAIL', classifyPublicObservation(jpegHit) === 'fail')
+  const html = await probePublicUrl('https://example.invalid/a', fake(200, { 'content-type': 'text/html; charset=utf-8' }, '<html>ok</html>'))
+  check('公開URL: 200 だが画像ではない → INCONCLUSIVE', html.isJpeg === false && classifyPublicObservation(html) === 'inconclusive')
+  const jpegLabelOnly = await probePublicUrl('https://example.invalid/a', fake(200, { 'content-type': 'image/jpeg' }, 'not really a jpeg'))
+  check('公開URL: Content-Type が image/jpeg でも中身が JPEG でなければ INCONCLUSIVE', classifyPublicObservation(jpegLabelOnly) === 'inconclusive')
+  const denied = await probePublicUrl('https://example.invalid/a', fake(400, { 'content-type': 'application/json' }, '{"error":"Bucket not found"}'))
+  check('公開URL: 400 → PASS', classifyPublicObservation(denied) === 'pass')
+  const notFound = await probePublicUrl('https://example.invalid/a', fake(404, {}, 'x'))
+  check('公開URL: 404 → PASS', classifyPublicObservation(notFound) === 'pass')
+  const redirect = await probePublicUrl('https://example.invalid/a', fake(302, { location: 'https://example.invalid/b' }, null))
+  check('公開URL: リダイレクトは追従せず検知し INCONCLUSIVE', redirect.redirected === true && classifyPublicObservation(redirect) === 'inconclusive')
+  const serverError = await probePublicUrl('https://example.invalid/a', fake(503, {}, 'x'))
+  check('公開URL: 5xx → INCONCLUSIVE', classifyPublicObservation(serverError) === 'inconclusive')
+  const netErr = await probePublicUrl('https://example.invalid/a', async () => {
+    throw new TypeError('fetch failed')
+  })
+  check('公開URL: 通信失敗 → INCONCLUSIVE', classifyPublicObservation(netErr) === 'inconclusive')
+  check('2回の結果は、より問題のある方を採用する（fail > inconclusive > pass）', worseOf('pass', 'fail') === 'fail' && worseOf('inconclusive', 'pass') === 'inconclusive' && worseOf('pass', 'pass') === 'pass')
+  check('通常URLのみ 200 の場合は、キャッシュの可能性を断定せずに説明する', /可能性/.test(cacheNote('fail', 'pass') ?? '') && /断定はできません/.test(cacheNote('fail', 'pass') ?? ''))
+  check('結果が同じなら、キャッシュの説明は付かない', cacheNote('fail', 'fail') === null)
+  const line = describeObservation('通常URL', jpegHit)
+  check('表示用の行に URL・パス・写真の内容を含めない', !/https?:|example\.invalid|\.jpg|\/storage\//.test(line) && /HTTP 200/.test(line) && /JPEG画像=はい/.test(line))
 }
 
 // ─── エントリーポイント ───────────────────────────────────────────────────
@@ -350,7 +466,7 @@ const isMain = !!process.argv[1] && import.meta.url === pathToFileURL(process.ar
 
 if (isMain) {
   if (process.argv.includes('--selftest')) {
-    process.exit(selftest())
+    process.exit(await selftest())
   }
   try {
     const report = await run()
