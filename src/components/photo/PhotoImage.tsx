@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import type { Photo } from '@/types/photo'
 
 interface Props {
-  photo: Pick<Photo, 'id' | 'thumbnail_data_url' | 'storage_path'>
+  photo: Pick<Photo, 'id' | 'user_id' | 'project_id' | 'thumbnail_data_url' | 'storage_path'>
   alt: string
   className?: string
   loading?: 'lazy' | 'eager'
