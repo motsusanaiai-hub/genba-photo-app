@@ -7,7 +7,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import { TermsPage } from '@/pages/legal/TermsPage'
 import { PrivacyPage } from '@/pages/legal/PrivacyPage'
-import { JURISDICTION_PROPOSAL, LEGAL, LEGAL_PENDING_ITEMS, LEGAL_PENDING_MARK } from '@/lib/legalInfo'
+import { LEGAL, LEGAL_PENDING_ITEMS, LEGAL_PENDING_MARK } from '@/lib/legalInfo'
 
 // 利用規約（/terms）・プライバシーポリシー（/privacy）。
 // 認証ストアにも Supabase にも触れずに描画できること（＝未ログインで開けること）、
@@ -103,9 +103,18 @@ describe('利用規約の内容', () => {
     expect(termsText).toContain('ブラウザ内に原本が残っている写真だけです')
   })
 
-  it('公開URL方式であること（URLを知っていればログインなしで見られること）を隠さない', () => {
-    expect(termsText).toContain('公開URL')
-    expect(termsText).toContain('URLを知っている人は、ログインしなくても、その圧縮画像を見ることができます')
+  it('クラウド画像の取得方法（認証付き通信・有効期限付きの署名URL）と、署名URLを知る第三者が見られる場合があることを隠さない', () => {
+    expect(termsText).toContain('認証付きの通信')
+    expect(termsText).toContain('有効期限付きの署名URL')
+    expect(termsText).toContain('署名URLを知っている第三者は、有効期限内であれば、その圧縮画像を見ることができる場合があります')
+    expect(termsText).not.toContain('公開URL')
+  })
+
+  it('写真等の権利帰属：利用者または正当な権利者に帰属し、当社は所有権を取得せず、広告・宣伝に無断で使わない', () => {
+    expect(termsText).toContain('写真等」）の権利は、利用者または正当な権利者に帰属します')
+    expect(termsText).toContain('当社が、写真等の所有権を取得するものではありません')
+    expect(termsText).toContain('保存、圧縮、表示、同期し、Excel台帳を作成します')
+    expect(termsText).toContain('利用者の許可なく、写真等を広告や宣伝に使用しません')
   })
 
   it('データ削除：写真削除・工事案件削除（論理削除で端末内は残る）・ログアウト・退会機能が未実装であることを説明している', () => {
@@ -116,9 +125,21 @@ describe('利用規約の内容', () => {
     expect(termsText).toContain('アカウントの削除（退会）機能は、現在、アプリ内にありません')
   })
 
-  it('免責は一方的な全面免除ではない（故意・重大な過失は除く／確認の責任は双方向に書く）', () => {
+  it('免責は一方的な全面免除ではない（故意・重大な過失は除く／確認の責任は双方向に書く／強行法規の範囲では適用しない）', () => {
     expect(termsText).toContain('当社に故意または重大な過失がある場合を除き')
-    expect(termsText).not.toMatch(/一切の責任を負いません|いかなる(場合|責任)も/)
+    expect(termsText).toContain('当社の責めに帰すべき事由によるものでない限り')
+    expect(termsText).toContain('この条の規定は、法令により当社が責任を免れることができない場合には、その範囲では適用されません')
+    expect(termsText).not.toMatch(/一切の責任を負いません|いかなる(場合|責任)も|損害賠償責任を(一切)?負いません/)
+    // 一律の賠償上限額は設けない
+    expect(termsText).not.toMatch(/賠償(額|の額)?は[^。]*(円|万円)を上限/)
+  })
+
+  it('準拠法は日本法。裁判管轄は専属的でなく、法令上の管轄・移送を妨げない', () => {
+    expect(termsText).toContain('日本法に準拠し')
+    expect(termsText).toContain('さいたま地方裁判所を第一審の合意管轄裁判所とします')
+    expect(termsText).toContain('これは専属的な合意ではありません')
+    expect(termsText).toContain('裁判所が法令に基づいて事件を他の裁判所へ移送することを妨げるものでもありません')
+    expect(termsText).not.toContain('専属的合意管轄裁判所')
   })
 })
 
@@ -135,15 +156,18 @@ describe('プライバシーポリシーの内容', () => {
     expect(privacyText).toContain('当社のサーバーには送られません')
   })
 
-  it('現状の公開バケット（公開URL方式）を、隠さず正確に説明している', () => {
-    expect(privacyText).toContain('公開URL')
-    expect(privacyText).toContain('URLを知っている人は、ログインしなくても、その圧縮画像を見ることができます')
-    expect(privacyText).toContain('ログインしなくても、その圧縮画像を取得できる可能性があります')
+  it('クラウド画像の取得方法（認証付き通信・有効期限付きの署名URL）を、実装どおりに説明している', () => {
+    expect(privacyText).toContain('認証付きの通信、または有効期限付きの署名URLを使って取得します')
+    expect(privacyText).toContain('署名URLを知っている第三者は、有効期限内に、その圧縮画像を見ることができる場合があります')
+    expect(privacyText).toContain('公開URLには依存していません')
+    expect(privacyText).toContain('有効期限内であれば、その圧縮画像を取得できる可能性があります')
+    expect(privacyText).not.toContain('公開URL方式')
   })
 
-  it('実装と異なる説明（非公開・第三者は閲覧できない・private化後の仕様）を書いていない', () => {
-    expect(privacyText).not.toMatch(/第三者は写真を閲覧できません|すべての写真は非公開|非公開で(す|保存)|閲覧できません|private|プライベート|署名付き.*のみ/i)
-    expect(termsText).not.toMatch(/第三者は写真を閲覧できません|すべての写真は非公開|閲覧できません|private|プライベート/i)
+  it('実装と異なる説明（すべて非公開・第三者は閲覧できない・ポリシーの安全性を保証する表現）を書いていない', () => {
+    for (const text of [privacyText, termsText]) {
+      expect(text).not.toMatch(/第三者は(写真|画像|圧縮画像)を(閲覧|取得)できません|すべての写真は非公開|非公開で(す|保存)|閲覧できません|private|プライベート|完全に(安全|保護)|安全が保証/i)
+    }
   })
 
   it('外部サービスは、コードで確認できる Supabase・Vercel・Stripe（過去の決済用）だけ。広告配信・解析サービスを書き足していない', () => {
@@ -279,9 +303,9 @@ describe('退会（アカウント削除）の案内', () => {
 
 describe('未確定の項目（公開時に確定する情報・法的確認が必要な情報）', () => {
   const pendingKeys = (html: string) => [...html.matchAll(/data-legal-pending="(\w+)"/g)].map((m) => m[1])
-  const EXPECTED = ['disclosure', 'jurisdiction', 'liability', 'privacyEnactedAt', 'termsEnactedAt']
+  const EXPECTED = ['privacyEnactedAt', 'termsEnactedAt']
 
-  it('残っている未確定項目は、制定日・施行日、準拠法/裁判管轄、免責の最終文言、開示等の手続きの5つだけ', () => {
+  it('残っている未確定項目は、正式公開日に確定する制定日・施行日の2つだけ', () => {
     const all = new Set([...pendingKeys(terms), ...pendingKeys(privacy)])
     expect([...all].sort()).toEqual(EXPECTED)
     expect(Object.keys(LEGAL_PENDING_ITEMS).sort()).toEqual(EXPECTED)
@@ -303,26 +327,29 @@ describe('未確定の項目（公開時に確定する情報・法的確認が�
     }
   })
 
-  it('裁判管轄は「検討中の案」として未確定の枠の中にだけ示し、確定事項として書いていない', () => {
-    const court = 'さいたま地方裁判所'
-    expect(terms).toContain(court)
-    expect(privacy).not.toContain(court)
-    const before = terms.slice(0, terms.indexOf(court))
-    // 案の文言は、未確定の表示（data-legal-pending="jurisdiction"）の中にある
-    expect(before.lastIndexOf('data-legal-pending="jurisdiction"')).toBeGreaterThan(before.lastIndexOf('</span>'))
-    expect(terms).toContain('検討中の案')
-    expect(JURISDICTION_PROPOSAL).toBe('さいたま地方裁判所を第一審の合意管轄裁判所とする')
+  it('裁判管轄・免責・開示等の手続きは確定した文章で、未確定の表示（LegalPending）にしていない', () => {
+    for (const key of ['jurisdiction', 'liability', 'disclosure']) {
+      expect(Object.keys(LEGAL_PENDING_ITEMS)).not.toContain(key)
+      expect(pendingKeys(terms)).not.toContain(key)
+      expect(pendingKeys(privacy)).not.toContain(key)
+    }
+    expect(terms).toContain('さいたま地方裁判所')
+    expect(privacy).not.toContain('さいたま地方裁判所')
   })
 
-  it('免責事項は、責任範囲を広げていない（従来の表現を維持し、最終文言は未確定のまま）', () => {
-    expect(pendingKeys(terms)).toContain('liability')
-    expect(termsText).toContain('当社に故意または重大な過失がある場合を除き')
-    expect(termsText).not.toMatch(/一切の責任を負いません|いかなる(場合|責任)も|損害賠償責任を(一切)?負いません/)
+  it('個人情報の開示等の請求：フォームで受け付け、メール以外も含む適切な方法で本人・代理権を確認し、手数料は原則無料', () => {
+    expect(privacyText).toContain('利用者ご本人または正当な代理人からの、個人情報の開示、訂正、削除、利用停止等のご請求は、当社のお問い合わせフォームにて受け付けます')
+    expect(privacyText).toContain('登録済みメールアドレスへの確認その他の適切な方法により、ご本人または代理権を確認したうえで、法令に従って対応します')
+    expect(privacyText).toContain('本人確認ができない場合は、追加の確認をお願いすることがあります')
+    expect(privacyText).toContain('確認が十分にできない間は、開示等を保留します')
+    expect(privacyText).toContain('手数料は原則として無料です')
+    expect(privacyText).toContain('法令により請求に応じられない場合は、法令に従って対応します')
+    expect(privacyText).toContain('開示等を自動で行う機能はありません')
   })
 
-  it('個人情報の開示等の請求は、フォームでの受付と、未確定の手続きの枠を示している', () => {
-    expect(pendingKeys(privacy)).toContain('disclosure')
-    expect(privacyText).toContain('ご自身の情報の開示、訂正、削除などをご希望の場合は、お問い合わせフォームからご連絡ください')
+  it('本人確認の条件を、メールだけ・原本写真の提出・同一ドメインに限定していない', () => {
+    const section = privacyText.slice(privacyText.indexOf('9.開示・訂正・削除などのご請求'), privacyText.indexOf('10.事業者の情報'))
+    expect(section).not.toMatch(/原本|ドメイン|のみ(で|に)?(本人|確認)/)
   })
 })
 
@@ -340,7 +367,7 @@ describe('公開前の確認（npm run check:legal）', () => {
       output = e.stdout ?? ''
     }
     expect(status).toBe(1)
-    expect(output).toContain('未確定の項目が 5 件残っています')
+    expect(output).toContain('未確定の項目が 2 件残っています')
     for (const label of Object.values(LEGAL_PENDING_ITEMS)) expect(output).toContain(label)
   })
 

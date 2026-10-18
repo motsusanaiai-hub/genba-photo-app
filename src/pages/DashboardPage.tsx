@@ -67,8 +67,8 @@ export function DashboardPage() {
             <div className="space-y-1 pb-1 pt-1 leading-relaxed">
               <p>元の写真は、この端末のブラウザ内にだけ保存されます。大切な写真は、別の場所にも保存してください。</p>
               <p>
-                小さくした写真（圧縮画像）は、クラウドに保存されます。現在は公開URL方式のため、URLを知っている人は、
-                ログインしなくても見ることができます。URLを共有しないでください。
+                小さくした写真（圧縮画像）は、クラウドに保存されます。取得には、認証付きの通信または有効期限付きの署名URLを使います。
+                署名URLを知っている第三者は、有効期限内に見られる場合があります。署名URLを共有しないでください。
               </p>
               <p>
                 <Link to="/privacy" target="_blank" rel="noopener noreferrer" className="underline">

@@ -112,11 +112,13 @@ describe('共通リンクとアプリ内の案内', () => {
     expect(source).toMatch(/<Link to="\/privacy"/)
   })
 
-  it('ダッシュボード：クラウド保存の説明（圧縮画像・公開URL方式）は折りたたみで、画面を占有しない', () => {
+  it('ダッシュボード：クラウド保存の説明（圧縮画像・署名URL）は折りたたみで、画面を占有しない', () => {
     const source = read('src/pages/DashboardPage.tsx')
     expect(source).toContain('<details>')
     expect(source).toContain('小さくした写真（圧縮画像）は、クラウドに保存されます')
-    expect(source).toContain('現在は公開URL方式のため、URLを知っている人は')
+    expect(source).toContain('取得には、認証付きの通信または有効期限付きの署名URLを使います')
+    expect(source).toContain('署名URLを知っている第三者は、有効期限内に見られる場合があります')
+    expect(source).not.toContain('公開URL方式')
   })
 
   it('写真取込画面：元画像の保存先とバックアップの案内がある。取り込み処理は変えていない', () => {

@@ -27,23 +27,16 @@ export const LEGAL = {
 } as const
 
 /**
- * 公開時または法的確認の後に確定する項目（本文中の LegalPending の item と対応する）。
+ * 正式公開日に確定する項目（本文中の LegalPending の item と対応する）。
  * 会社情報・問い合わせ先・退会の受付窓口は確定したため、ここには含めない。
  */
 export const LEGAL_PENDING_ITEMS = {
-  /** 公開時に確定する日付（勝手に決めない） */
+  /** 正式公開日に確定する日付（勝手に決めない。仮の日付を本文に埋め込まない） */
   termsEnactedAt: '利用規約の制定日・施行日',
   privacyEnactedAt: 'プライバシーポリシーの制定日',
-  /** 法的確認が必要な項目 */
-  jurisdiction: '準拠法・裁判管轄',
-  liability: '免責事項・責任の範囲の最終文言',
-  disclosure: '個人情報の開示等の手続き',
 } as const
 
 export type LegalPendingKey = keyof typeof LEGAL_PENDING_ITEMS
 
 /** 未確定の表示に使う目印（テストと公開前チェックで検索できるよう固定の文字列にしている） */
 export const LEGAL_PENDING_MARK = '【未確定'
-
-/** 裁判管轄の検討中の案。法的確認が済むまでは確定事項として表示しない（LegalPending の中でだけ示す）。 */
-export const JURISDICTION_PROPOSAL = 'さいたま地方裁判所を第一審の合意管轄裁判所とする'
