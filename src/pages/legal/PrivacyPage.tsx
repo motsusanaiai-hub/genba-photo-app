@@ -2,7 +2,6 @@ import { Link } from 'react-router-dom'
 import {
   ContactFormLink,
   LegalLayout,
-  LegalPending,
   LegalSection,
   LegalSummary,
   OperatorInfo,
@@ -17,14 +16,14 @@ import { LEGAL } from '@/lib/legalInfo'
  *   アカウント削除機能は未実装 / 外部サービス＝Supabase・Vercel・Stripe（過去の決済用。新規販売は停止中）
  *   広告配信サービス・アクセス解析サービスは使っていない（自社広告へのリンクのみ）
  * 運営者の情報・問い合わせフォームは src/lib/legalInfo.ts の値を表示する（利用規約と共通）。
- * 未確定の項目（制定日）は LegalPending で明示してあり、正式公開日が決まったら確定して差し替える
- * （`npm run check:legal` で残りを確認できる）。仮の日付を本文に埋め込まないこと（check:legal をすり抜けるため）。
+ * 制定日は正式公開日（2026年10月18日）で確定している。未確定の項目が今後出た場合は、
+ * LegalPending で明示する（`npm run check:legal` で残りを確認できる）。仮の日付を本文に埋め込まないこと。
  */
 export function PrivacyPage() {
   return (
     <LegalLayout title="プライバシーポリシー">
       <p className="mt-2 text-xs text-muted-foreground">
-        制定日：<LegalPending item="privacyEnactedAt" />
+        制定日：2026年10月18日
       </p>
 
       <p className="mt-4">

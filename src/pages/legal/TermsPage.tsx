@@ -2,7 +2,6 @@ import { Link } from 'react-router-dom'
 import {
   ContactFormLink,
   LegalLayout,
-  LegalPending,
   LegalSection,
   LegalSummary,
   OperatorInfo,
@@ -14,14 +13,14 @@ import { LEGAL } from '@/lib/legalInfo'
  * 内容は実装（元画像は端末のIndexedDB・圧縮画像はSupabase Storage。取得は認証付きダウンロードまたは
  * 有効期限付きの署名URLで、公開URLには依存しない・工事案件は論理削除・アカウント削除機能は未実装 など）に合わせている。
  * 運営者の情報・問い合わせフォームは src/lib/legalInfo.ts の値を表示する（プライバシーポリシーと共通）。
- * 未確定の項目（制定日・施行日）は LegalPending で明示してあり、正式公開日が決まったら確定して差し替える
- * （`npm run check:legal` で残りを確認できる）。仮の日付を本文に埋め込まないこと（check:legal をすり抜けるため）。
+ * 制定日・施行日は正式公開日（2026年10月18日）で確定している。未確定の項目が今後出た場合は、
+ * LegalPending で明示する（`npm run check:legal` で残りを確認できる）。仮の日付を本文に埋め込まないこと。
  */
 export function TermsPage() {
   return (
     <LegalLayout title="利用規約">
       <p className="mt-2 text-xs text-muted-foreground">
-        制定日・施行日：<LegalPending item="termsEnactedAt" />
+        制定日・施行日：2026年10月18日
       </p>
 
       <LegalSummary>

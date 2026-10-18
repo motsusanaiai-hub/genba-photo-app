@@ -303,14 +303,12 @@ describe('退会（アカウント削除）の案内', () => {
 
 describe('未確定の項目（公開時に確定する情報・法的確認が必要な情報）', () => {
   const pendingKeys = (html: string) => [...html.matchAll(/data-legal-pending="(\w+)"/g)].map((m) => m[1])
-  const EXPECTED = ['privacyEnactedAt', 'termsEnactedAt']
 
-  it('残っている未確定項目は、正式公開日に確定する制定日・施行日の2つだけ', () => {
-    const all = new Set([...pendingKeys(terms), ...pendingKeys(privacy)])
-    expect([...all].sort()).toEqual(EXPECTED)
-    expect(Object.keys(LEGAL_PENDING_ITEMS).sort()).toEqual(EXPECTED)
-    expect(terms).toContain(LEGAL_PENDING_MARK)
-    expect(privacy).toContain(LEGAL_PENDING_MARK)
+  it('未確定の表示（LegalPending）は、規約にもポリシーにも残っていない', () => {
+    expect(pendingKeys(terms)).toEqual([])
+    expect(pendingKeys(privacy)).toEqual([])
+    expect(terms).not.toContain(LEGAL_PENDING_MARK)
+    expect(privacy).not.toContain(LEGAL_PENDING_MARK)
   })
 
   it('確定済みの項目（問い合わせ先・所在地・代表者・退会の受付窓口）は、未確定の一覧に含まれない', () => {
@@ -319,11 +317,12 @@ describe('未確定の項目（公開時に確定する情報・法的確認が�
     }
   })
 
-  it('制定日・施行日は日付を決めていない（未確定のまま）。日付らしい表記もない', () => {
-    expect(pendingKeys(terms)).toContain('termsEnactedAt')
-    expect(pendingKeys(privacy)).toContain('privacyEnactedAt')
+  it('制定日・施行日は、正式公開日の2026年10月18日で確定している（これ以外の日付や仮置きの記号は書かない）', () => {
+    expect(termsText).toContain('制定日・施行日：2026年10月18日')
+    expect(privacyText).toContain('制定日：2026年10月18日')
     for (const text of [termsText, privacyText]) {
-      expect(text).not.toMatch(/制定日[：:]?\d|施行日[：:]?\d|20\d\d年\d+月\d+日/)
+      expect([...new Set(text.match(/20\d\d年\d+月\d+日/g))]).toEqual(['2026年10月18日'])
+      expect(text).not.toMatch(/○|〇|仮置き|YYYY|20xx/)
     }
   })
 
@@ -356,19 +355,10 @@ describe('未確定の項目（公開時に確定する情報・法的確認が�
 describe('公開前の確認（npm run check:legal）', () => {
   const script = path.join(ROOT, 'scripts/check-legal-pending.mjs')
 
-  it('未確定の項目が残っていることを検出し、一覧を表示して失敗の終了コードで終わる', () => {
-    let status = 0
-    let output = ''
-    try {
-      output = execFileSync(process.execPath, [script], { encoding: 'utf8' })
-    } catch (error) {
-      const e = error as { status?: number; stdout?: string }
-      status = e.status ?? 1
-      output = e.stdout ?? ''
-    }
-    expect(status).toBe(1)
-    expect(output).toContain('未確定の項目が 2 件残っています')
-    for (const label of Object.values(LEGAL_PENDING_ITEMS)) expect(output).toContain(label)
+  it('未確定の項目が0件で、正常終了（終了コード0）する', () => {
+    // 失敗（終了コード1）の場合は execFileSync が例外を投げるため、テストも失敗する
+    const output = execFileSync(process.execPath, [script], { encoding: 'utf8' })
+    expect(output).toContain('OK: 利用規約・プライバシーポリシーに、未確定の項目は残っていません。')
   })
 
   it('ビルドと自動テストの失敗条件にはしていない（package.json の build / test に組み込まれていない）', () => {
