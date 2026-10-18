@@ -5,8 +5,9 @@ import type { Plan } from '@/types/auth'
  * 「どのplanに何が許可されるか」をコンポーネントに直接書き散らさないよう、
  * 判定ロジックはここに集約する。
  *
- * 現場フォトは完全無料化した（広告削除プラン・Proプランは廃止）。全ユーザーに同じ機能を無料で提供し、
- * 広告は全ユーザーに表示する。そのため、以下の判定はどのplanでも同じ結果を返す。
+ * 現場フォトは完全無料化した（広告削除プラン・Proプランの新規購入は終了）。機能の制限はどのplanにもなく、
+ * 工事案件数・Excel出力は全ユーザーで同じ。違いは広告の表示だけで、過去に広告削除（買い切り）を
+ * 購入した人（ads_removed）とPro契約・恒久Pro（pro）には、従来どおり広告を表示しない（購入者の権利の保護）。
  * 判定関数と plan 引数は、判定の入口を1か所に保つため、また将来の拡張に備えて残している
  * （plan 列・課金テーブル・Webhook などの購入履歴は削除していない）。
  *
@@ -33,7 +34,7 @@ export function canExportAllExcelPages(_plan: Plan): boolean {
   return true
 }
 
-/** 広告を表示するか（全プラン共通で true）。 */
-export function shouldShowAds(_plan: Plan): boolean {
-  return true
+/** 広告を表示するか（true: 表示する / false: 表示しない）。free のみ表示し、ads_removed と pro は表示しない。 */
+export function shouldShowAds(plan: Plan): boolean {
+  return plan === 'free'
 }

@@ -94,7 +94,7 @@ export function CheckoutSuccessPage() {
             <h1 className="text-base font-semibold">お支払いを確認しました</h1>
             <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
               現場フォトは、すべての機能を無料でご利用いただけるようになりました。
-              広告は引き続き表示されます。
+              広告削除は引き続き有効です。
             </p>
           </div>
           <Button asChild>

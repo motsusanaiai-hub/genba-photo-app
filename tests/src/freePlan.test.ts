@@ -37,13 +37,17 @@ describe('ダッシュボード', () => {
   const source = readCode('src/pages/DashboardPage.tsx')
 
   it('購入ボタン・契約管理・工事案件数の制限案内を表示しない', () => {
-    expect(source).not.toMatch(/RemoveAdsButton|ProCheckoutButton|ManageSubscriptionCard/)
+    expect(source).not.toMatch(/RemoveAdsButton|ProCheckoutButton/)
     expect(source).not.toMatch(/PROJECT_LIMIT_MESSAGE|showLimitNotice|canCreateNewProject/)
     expect(source).not.toMatch(/300円|広告を削除|Proプラン|アップグレード/)
   })
 
   it('広告（AdSlot）をダッシュボードに表示している', () => {
     expect(source).toMatch(/<AdSlot\b/)
+  })
+
+  it('既存の月額契約者向けの契約管理（ManageSubscriptionCard）を表示している', () => {
+    expect(source).toMatch(/<ManageSubscriptionCard\b/)
   })
 
   it('広告の下の案内（フッター）に、モバイルのFABと重ならない下余白を付けている', () => {
@@ -89,13 +93,13 @@ describe('一般ユーザー向け画面に料金・購入の表示がない', (
     expect(found.map(rel)).toEqual([])
   })
 
-  it('購入関連コンポーネントは、どの画面からも使われていない', () => {
-    const importers = generalFiles
-      .filter((file) =>
-        /components\/billing\/(RemoveAdsButton|ProCheckoutButton|ManageSubscriptionCard)/.test(readFileSync(file, 'utf8')),
-      )
-      .map(rel)
-    expect(importers).toEqual([])
+  it('購入ボタンは、どの画面からも使われていない（契約管理は既存契約者向けにダッシュボードだけが使う）', () => {
+    const importers = (name: string) =>
+      generalFiles
+        .filter((file) => new RegExp(`components/billing/${name}`).test(readFileSync(file, 'utf8')))
+        .map(rel)
+    expect(importers('(RemoveAdsButton|ProCheckoutButton)')).toEqual([])
+    expect(importers('ManageSubscriptionCard')).toEqual(['src/pages/DashboardPage.tsx'])
   })
 
   it('決済完了画面のルートは、既存URLへの対応として残している', () => {
@@ -104,13 +108,13 @@ describe('一般ユーザー向け画面に料金・購入の表示がない', (
     expect(router).toContain("path: 'billing/pro/success'")
   })
 
-  it('決済完了画面は、広告が表示されない・上限が外れるといった、現在の仕様と異なる説明をしない', () => {
+  it('決済完了画面は、上限が外れるといった、現在の仕様と異なる説明をしない', () => {
     for (const file of [
       'src/pages/billing/CheckoutSuccessPage.tsx',
       'src/pages/billing/ProCheckoutSuccessPage.tsx',
     ]) {
       const source = readCode(file)
-      expect(source).not.toMatch(/広告は表示されず|以降、広告は表示されません|無制限に登録/)
+      expect(source).not.toMatch(/以降、広告は表示されません|無制限に登録/)
       expect(source).toContain('すべての機能を無料でご利用いただけるようになりました')
     }
   })

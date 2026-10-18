@@ -59,7 +59,7 @@ export function ProCheckoutSuccessPage() {
             <h1 className="text-base font-semibold">お手続きを確認しました</h1>
             <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
               現場フォトは、すべての機能を無料でご利用いただけるようになりました。
-              広告は引き続き表示されます。
+              ご契約の内容は、ホームの画面から確認できます。
             </p>
           </div>
           <Button asChild>

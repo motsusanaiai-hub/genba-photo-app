@@ -5,6 +5,7 @@ import { ProjectCard } from '@/components/project/ProjectCard'
 import { Button } from '@/components/ui/button'
 import { Header } from '@/components/layout/Header'
 import { AdSlot } from '@/components/common/AdSlot'
+import { ManageSubscriptionCard } from '@/components/billing/ManageSubscriptionCard'
 
 export function DashboardPage() {
   const navigate = useNavigate()
@@ -51,9 +52,12 @@ export function DashboardPage() {
           </div>
         )}
 
-        {/* 広告枠（全ユーザーに表示する自社広告。現場フォトは広告付きの無料アプリ）。
-            広告の表示場所はダッシュボードのみ。モバイルFAB（bottom-20〜136px帯）と重ならないよう
-            下に余白を確保する。購入・アップグレード・契約管理の導線は置かない。 */}
+        {/* 既存の月額契約者だけに出る契約管理（Stripe Customer Portal）。契約が残っていない人には何もrenderしない。
+            新規購入・アップグレードの導線は置かない。 */}
+        <ManageSubscriptionCard className="mt-6" />
+
+        {/* 広告枠（free限定の自社広告。広告削除の購入者・Pro契約者ではAdSlot自体が何もrenderしない）。
+            広告の表示場所はダッシュボードのみ。 */}
         <AdSlot className="mt-6" />
 
         {/* 写真の保存についての短い説明と、規約へのリンク。モバイルFAB（bottom-20〜136px帯）と重ならないよう下に余白を確保する。 */}
