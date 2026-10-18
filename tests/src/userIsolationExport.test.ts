@@ -96,7 +96,7 @@ describe('他人の工事案件は出力できない（ユーザーBがAの工�
   it('Excel直接作成（genbafoto）：APIを呼ばず、ファイルも作らず、写真が無い場合と同じ結果（存在を知らせない）', async () => {
     const fetchImpl = vi.fn()
     const download = vi.fn()
-    const result = await generateGenbafotoJob(PROJECT, photos().map((p) => ({ ...p, storage_path: 'x/y.jpg' })), 'standard', undefined, {
+    const result = await generateGenbafotoJob(PROJECT, photos().map((p) => ({ ...p, storage_path: 'x/y.jpg' })), 'standard', {
       getAccessToken: async () => 'token',
       fetchImpl: fetchImpl as unknown as typeof fetch,
       download,
@@ -143,7 +143,7 @@ describe('本人の工事案件は出力できる（ユーザーAが再ログイ
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       )
     })
-    const result = await generateGenbafotoJob(PROJECT, photos().map((p) => ({ ...p, storage_path: `${OWNER}/${p.id}.jpg` })), 'standard', undefined, {
+    const result = await generateGenbafotoJob(PROJECT, photos().map((p) => ({ ...p, storage_path: `${OWNER}/${p.id}.jpg` })), 'standard', {
       getAccessToken: async () => 'token',
       fetchImpl: fetchImpl as unknown as typeof fetch,
       now: () => new Date('2026-10-12T00:00:00.000Z'),
