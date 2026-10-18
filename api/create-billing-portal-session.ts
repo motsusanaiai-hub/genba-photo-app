@@ -114,7 +114,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return
   }
   if (!linkedCustomer) {
-    res.status(404).json({ error: '管理できるProプランの契約が見つかりません' })
+    res.status(404).json({ error: '管理できる契約が見つかりません' })
     return
   }
 
@@ -133,7 +133,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return
   }
   if (subscriptions.length === 0) {
-    res.status(404).json({ error: '管理できるProプランの契約が見つかりません' })
+    res.status(404).json({ error: '管理できる契約が見つかりません' })
     return
   }
 

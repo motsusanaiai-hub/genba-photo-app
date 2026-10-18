@@ -1,22 +1,15 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { FolderOpen, Plus, X } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { FolderOpen, Plus } from 'lucide-react'
 import { useProjects } from '@/hooks/useProjects'
 import { ProjectCard } from '@/components/project/ProjectCard'
 import { Button } from '@/components/ui/button'
 import { Header } from '@/components/layout/Header'
 import { AdSlot } from '@/components/common/AdSlot'
-import { RemoveAdsButton } from '@/components/billing/RemoveAdsButton'
-import { ProCheckoutButton } from '@/components/billing/ProCheckoutButton'
 import { ManageSubscriptionCard } from '@/components/billing/ManageSubscriptionCard'
-import { useAuthStore } from '@/store/authStore'
-import { PROJECT_LIMIT_MESSAGE, shouldShowAds } from '@/lib/plan'
 
 export function DashboardPage() {
   const navigate = useNavigate()
-  const { projects, canCreateNewProject, removeProject } = useProjects()
-  const [showLimitNotice, setShowLimitNotice] = useState(false)
-  const plan = useAuthStore((s) => s.user?.plan ?? 'free')
+  const { projects, removeProject } = useProjects()
 
   const handleDelete = async (projectId: string, projectName: string) => {
     const confirmed = window.confirm(
@@ -25,12 +18,8 @@ export function DashboardPage() {
     if (confirmed) await removeProject(projectId)
   }
 
-  // 新規作成の入口（ヘッダーボタン・FAB共通）。上限到達時は遷移させず理由を表示する。
+  // 新規作成の入口（ヘッダーボタン・FAB共通）。工事案件数の上限はない。
   const handleNewProjectClick = () => {
-    if (!canCreateNewProject) {
-      setShowLimitNotice(true)
-      return
-    }
     navigate('/projects/new')
   }
 
@@ -45,19 +34,6 @@ export function DashboardPage() {
           </Button>
         }
       />
-
-      {showLimitNotice && (
-        <div className="mx-4 mt-4 lg:mx-6 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-sm p-3 leading-relaxed">
-          <span className="flex-1">{PROJECT_LIMIT_MESSAGE}</span>
-          <button
-            onClick={() => setShowLimitNotice(false)}
-            className="shrink-0 text-amber-700 hover:text-amber-900"
-            aria-label="閉じる"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
 
       <div className="p-4 lg:p-6">
         {projects.length === 0 ? (
@@ -76,21 +52,40 @@ export function DashboardPage() {
           </div>
         )}
 
-        {/* Proプランの購入導線（VITE_PRO_CHECKOUT_ENABLED のビルドのみ。proでは何もrenderしない）。 */}
-        <ProCheckoutButton className="mt-6" />
+        {/* 既存の月額契約者だけに出る契約管理（Stripe Customer Portal）。契約が残っていない人には何もrenderしない。
+            新規購入・アップグレードの導線は置かない。 */}
+        <ManageSubscriptionCard className="mt-6" />
 
-        {/* Pro月額の契約管理（Stripe Customer Portal）。アプリ経由のSubscriptionがある場合だけrenderする。
-            広告削除ボタンが出ない（free以外）ときはこれが最下部になるため、FABと重ならない余白を付ける。 */}
-        <ManageSubscriptionCard className={shouldShowAds(plan) ? 'mt-6' : 'mt-6 mb-24 lg:mb-6'} />
-
-        {/* 広告枠（free限定。ads_removed/proではAdSlot自体が何もrenderしない）。 */}
+        {/* 広告枠（free限定の自社広告。広告削除の購入者・Pro契約者ではAdSlot自体が何もrenderしない）。
+            広告の表示場所はダッシュボードのみ。 */}
         <AdSlot className="mt-6" />
 
-        {/* 広告削除の購入導線（free限定。ads_removed/proではRemoveAdsButton自体が
-            何もrenderしない）。広告のすぐ下に置くことで文脈を分かりやすくする。
-            モバイルFAB（bottom-20〜136px帯）と重ならないよう下に余白を確保する
-            （非表示時に余白だけ残らないよう、余白クラスはコンポーネント自身に渡す）。 */}
-        <RemoveAdsButton className="mt-3 mb-24 lg:mb-6" />
+        {/* 写真の保存についての短い説明と、規約へのリンク。モバイルFAB（bottom-20〜136px帯）と重ならないよう下に余白を確保する。 */}
+        <footer className="mx-auto mb-24 mt-6 w-full max-w-2xl space-y-2 text-xs text-muted-foreground lg:mb-6">
+          <details>
+            <summary className="cursor-pointer select-none py-1">写真の保存について</summary>
+            <div className="space-y-1 pb-1 pt-1 leading-relaxed">
+              <p>元の写真は、この端末のブラウザ内にだけ保存されます。大切な写真は、別の場所にも保存してください。</p>
+              <p>
+                小さくした写真（圧縮画像）は、クラウドに保存されます。取得には、認証付きの通信または有効期限付きの署名URLを使います。
+                署名URLを知っている第三者は、有効期限内に見られる場合があります。署名URLを共有しないでください。
+              </p>
+              <p>
+                <Link to="/privacy" target="_blank" rel="noopener noreferrer" className="underline">
+                  くわしくはプライバシーポリシー
+                </Link>
+              </p>
+            </div>
+          </details>
+          <nav className="flex gap-4" aria-label="規約">
+            <Link to="/terms" target="_blank" rel="noopener noreferrer" className="hover:text-foreground hover:underline">
+              利用規約
+            </Link>
+            <Link to="/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-foreground hover:underline">
+              プライバシーポリシー
+            </Link>
+          </nav>
+        </footer>
       </div>
 
       {/* スマホ用 FAB */}

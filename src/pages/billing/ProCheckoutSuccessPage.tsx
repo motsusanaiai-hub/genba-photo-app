@@ -46,7 +46,7 @@ export function ProCheckoutSuccessPage() {
           <div className="space-y-1">
             <h1 className="text-base font-semibold">お申し込みを確認しています…</h1>
             <p className="text-sm text-muted-foreground max-w-xs">
-              Proプランの反映まで少しお時間がかかる場合があります。
+              お手続きの反映まで少しお時間がかかる場合があります。
             </p>
           </div>
         </>
@@ -56,9 +56,10 @@ export function ProCheckoutSuccessPage() {
         <>
           <CheckCircle2 className="h-10 w-10 text-green-600" />
           <div className="space-y-1">
-            <h1 className="text-base font-semibold">Proプランが有効になりました</h1>
-            <p className="text-sm text-muted-foreground max-w-xs">
-              ご契約ありがとうございます。広告は表示されず、工事案件を無制限に登録できます。
+            <h1 className="text-base font-semibold">お手続きを確認しました</h1>
+            <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+              現場フォトは、すべての機能を無料でご利用いただけるようになりました。
+              ご契約の内容は、ホームの画面から確認できます。
             </p>
           </div>
           <Button asChild>

@@ -290,6 +290,16 @@ export function PhotoUploadModal({ open, onClose, projectId, defaultPhase, initi
                 </div>
               )}
 
+              {/* 原本の保存先についての注意（短い1文＋リンク） */}
+              {!uploading && (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  元の写真は、この端末のブラウザ内にだけ保存されます。大切な写真は、別の場所にも保存してください。
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="ml-1 underline">
+                    くわしく
+                  </a>
+                </p>
+              )}
+
               {/* ファイル入力（非表示） */}
               <input
                 ref={inputRef}

@@ -3,9 +3,14 @@ import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
 import { requireEnv } from './_lib/requireEnv.js'
 import { resolveAppOrigin } from './_lib/appOrigin.js'
+import { NEW_PURCHASES_OPEN, PURCHASES_CLOSED_BODY, PURCHASES_CLOSED_STATUS } from './_lib/purchaseGate.js'
 
 /**
  * 広告削除（買い切り300円）用のStripe Checkout Session（mode: payment）を作成する。
+ *
+ * 【新規購入の受付は終了している】現場フォトの完全無料化に伴い、広告削除プランは廃止した。
+ * NEW_PURCHASES_OPEN（_lib/purchaseGate.ts）が false の間は、認証・DB参照・Stripe呼び出しより前に
+ * 410 を返し、Checkout Session を一切作らない。以下の処理は、将来再開する場合のために残している。
  *
  * - クライアントからは user_id を一切受け取らない。受け取るのは Supabase の
  *   access token のみで、誰の購入かはこのハンドラがサーバー側でJWTを検証して
@@ -20,6 +25,12 @@ import { resolveAppOrigin } from './_lib/appOrigin.js'
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method Not Allowed' })
+    return
+  }
+
+  // 新規購入の受付終了（環境変数に依存しない）。認証・DB・Stripe より前に止める。
+  if (!NEW_PURCHASES_OPEN) {
+    res.status(PURCHASES_CLOSED_STATUS).json(PURCHASES_CLOSED_BODY)
     return
   }
 

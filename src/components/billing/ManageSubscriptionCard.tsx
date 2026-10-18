@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Crown, Loader2, Settings } from 'lucide-react'
+import { CreditCard, Loader2, Settings } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { supabase } from '@/lib/supabase'
 import {
@@ -17,7 +17,10 @@ interface Props {
 }
 
 /**
- * Proプラン（月額）の契約内容表示と、Stripe Customer Portal への導線。
+ * 新規購入は終了したが、既存の月額契約者が解約・お支払い方法の変更をできるよう、ダッシュボードに残している。
+ * 契約が残っていない人（subscriptions に終了していない行が無い人）には何もrenderしない。
+ *
+ * 月額契約の内容表示と、Stripe Customer Portal への導線。
  *
  * 表示条件は plan ではなく、本人の subscriptions に終了していない行があること
  * （plan='pro' は pro_override の開発者アカウントでも立つため）。
@@ -107,10 +110,9 @@ export function ManageSubscriptionCard({ className }: Props) {
     <div className={cn('rounded-lg border bg-card p-4 space-y-3 max-w-md mx-auto', className)}>
       <div className="space-y-1">
         <p className="flex items-center gap-1.5 text-sm font-semibold">
-          <Crown className="h-4 w-4 text-amber-500" />
-          {grantsPro ? 'Proプランをご利用中' : 'Proプランのご契約'}
+          <CreditCard className="h-4 w-4 text-muted-foreground" />
+          ご契約情報の確認・管理
         </p>
-        <p className="text-xs text-muted-foreground">月額300円（税込）</p>
       </div>
 
       {subscription.status === 'past_due' && (
@@ -120,13 +122,13 @@ export function ManageSubscriptionCard({ className }: Props) {
       )}
       {!grantsPro && (
         <p className="text-xs text-destructive leading-relaxed">
-          現在Proプランをご利用いただけない状態です。お支払い状況をご確認ください。
+          現在ご契約をご利用いただけない状態です。お支払い状況をご確認ください。
         </p>
       )}
       {grantsPro && subscription.cancel_at_period_end && (
         <p className="text-xs text-amber-700 leading-relaxed">
           {periodEnd ? `${periodEnd}に解約予定です。` : '解約予定です。'}
-          それまではProプランをご利用いただけます。
+          それまでは引き続きご利用いただけます。
         </p>
       )}
       {grantsPro && !subscription.cancel_at_period_end && periodEnd && (

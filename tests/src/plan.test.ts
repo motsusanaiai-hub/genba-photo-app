@@ -1,62 +1,51 @@
 import { describe, expect, it } from 'vitest'
-import {
-  FREE_PROJECT_LIMIT,
-  canCreateProject,
-  canExportAllExcelPages,
-  projectLimit,
-  shouldShowAds,
-} from '@/lib/plan'
+import { canCreateProject, canExportAllExcelPages, projectLimit, shouldShowAds } from '@/lib/plan'
 import type { Plan } from '@/types/auth'
 
-// 5. プラン別の権限判定（Pro契約終了で plan が free / ads_removed に戻ったときの画面側の判定）。
+// 完全無料化：プラン（free / ads_removed / pro）による機能差はない。
+// 違いは広告の表示だけ（free は表示、過去の購入者の ads_removed と pro は表示しない）。
+// 既存の plan 値（過去の購入履歴・恒久Proなど）が何であっても、機能の判定は同じ結果になることを確認する。
 
-describe.each<{
-  plan: Plan
-  showsAds: boolean
-  exportsAllExcelPages: boolean
-  projectLimit: number | null
-}>([
-  { plan: 'free', showsAds: true, exportsAllExcelPages: false, projectLimit: FREE_PROJECT_LIMIT },
-  { plan: 'ads_removed', showsAds: false, exportsAllExcelPages: false, projectLimit: FREE_PROJECT_LIMIT },
-  { plan: 'pro', showsAds: false, exportsAllExcelPages: true, projectLimit: null },
-])('plan = $plan', ({ plan, showsAds, exportsAllExcelPages, projectLimit: limit }) => {
-  it(`広告表示：${showsAds ? '表示する' : '表示しない'}`, () => {
-    expect(shouldShowAds(plan)).toBe(showsAds)
+const PLANS: Plan[] = ['free', 'ads_removed', 'pro']
+
+describe.each(PLANS)('plan = %s', (plan) => {
+  it('広告は free のときだけ表示する（ads_removed・pro は表示しない）', () => {
+    expect(shouldShowAds(plan)).toBe(plan === 'free')
   })
 
-  it(`Excel全ページ出力：${exportsAllExcelPages ? '可' : '不可（1ページずつ）'}`, () => {
-    expect(canExportAllExcelPages(plan)).toBe(exportsAllExcelPages)
+  it('Excelを全ページ出力できる（1ページ制限なし）', () => {
+    expect(canExportAllExcelPages(plan)).toBe(true)
   })
 
-  it(`工事案件の上限：${limit ?? '無制限'}`, () => {
-    expect(projectLimit(plan)).toBe(limit)
+  it('工事案件の上限はない', () => {
+    expect(projectLimit(plan)).toBeNull()
   })
 
-  if (limit === null) {
-    it('件数に関係なく新規作成できる', () => {
-      expect(canCreateProject(plan, 0)).toBe(true)
-      expect(canCreateProject(plan, 100)).toBe(true)
-    })
-  } else {
-    it('上限未満なら新規作成でき、上限以上ならできない', () => {
-      expect(canCreateProject(plan, limit - 1)).toBe(true)
-      expect(canCreateProject(plan, limit)).toBe(false)
-      // Pro終了後に上限を超えて保存されている場合も「新規作成不可」になるだけ
-      expect(canCreateProject(plan, limit + 7)).toBe(false)
-    })
-  }
+  it('工事案件を4件以上でも、何件でも新規作成できる', () => {
+    for (const count of [0, 1, 2, 3, 4, 5, 10, 100, 1000]) {
+      expect(canCreateProject(plan, count)).toBe(true)
+    }
+  })
 })
 
-describe('Pro契約終了による切り替え', () => {
-  it('pro → free：広告が表示対象に戻り、Excel全ページ出力と無制限作成ができなくなる', () => {
-    expect([shouldShowAds('pro'), shouldShowAds('free')]).toEqual([false, true])
-    expect([canExportAllExcelPages('pro'), canExportAllExcelPages('free')]).toEqual([true, false])
-    expect([canCreateProject('pro', 5), canCreateProject('free', 5)]).toEqual([true, false])
+describe('プランによる機能差がない', () => {
+  it('広告の表示以外は、どのプランでも判定結果が同じ', () => {
+    const results = PLANS.map((plan) => [
+      canExportAllExcelPages(plan),
+      projectLimit(plan),
+      canCreateProject(plan, 50),
+    ])
+    expect(results[1]).toEqual(results[0])
+    expect(results[2]).toEqual(results[0])
   })
 
-  it('pro → ads_removed：広告は非表示のまま、Pro限定機能だけが使えなくなる', () => {
-    expect(shouldShowAds('ads_removed')).toBe(false)
-    expect(canExportAllExcelPages('ads_removed')).toBe(false)
-    expect(canCreateProject('ads_removed', 5)).toBe(false)
+  it('広告の表示は購入者の権利に沿う（free のみ表示。ads_removed・pro は非表示）', () => {
+    expect([shouldShowAds('pro'), shouldShowAds('free'), shouldShowAds('ads_removed')]).toEqual([false, true, false])
+  })
+
+  it('旧プラン（Pro → free / ads_removed への切り替え）でも、機能は減らない', () => {
+    expect(canExportAllExcelPages('free')).toBe(true)
+    expect(canCreateProject('free', 5)).toBe(true)
+    expect(canCreateProject('ads_removed', 5)).toBe(true)
   })
 })

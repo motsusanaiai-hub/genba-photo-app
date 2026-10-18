@@ -94,7 +94,12 @@ export function LoginPage() {
           アカウントを作成 ›
         </Link>
         {isConfigured && (
-          <span className="text-xs text-muted-foreground">パスワードを忘れた方 ›</span>
+          <Link
+            to="/auth/forgot-password"
+            className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+          >
+            パスワードを忘れた方 ›
+          </Link>
         )}
       </CardFooter>
     </Card>
