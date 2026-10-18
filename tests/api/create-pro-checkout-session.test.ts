@@ -24,6 +24,15 @@ vi.mock('../../api/_lib/supabaseAdmin.ts', () => ({
   createSupabaseAdminClient: mocks.createSupabaseAdminClient,
 }))
 
+// 新規購入は恒久的に受付終了している（api/_lib/purchaseGate.ts）。このファイルは、将来の再開用に残してある
+// 従来のCheckout処理（PRO_CHECKOUT_ENABLED・認証・Customer / Subscription の確認）を検証するため、
+// 受付を「開いた」状態に差し替える。受付終了そのもの（410で止まり Stripe・Supabase に触れない）は
+// purchases-closed.test.ts で確認する。
+vi.mock('../../api/_lib/purchaseGate.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/_lib/purchaseGate')>()),
+  NEW_PURCHASES_OPEN: true,
+}))
+
 import handler, { isProCheckoutEnabled } from '../../api/create-pro-checkout-session'
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'

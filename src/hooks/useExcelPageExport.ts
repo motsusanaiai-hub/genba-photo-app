@@ -16,17 +16,19 @@ interface Options<T> {
    */
   listPages: (photos: Photo[]) => ExcelPageInfo<T>[] | Promise<ExcelPageInfo<T>[]>
   /** そのレイアウトの実際の生成関数（generateExcel等）。pageを渡さなければ従来通り全ページ出力する。 */
-  generate: (project: Project, photos: Photo[], page?: ExcelPageInfo<T>) => Promise<void>
+  generate: (project: Project, photos: Photo[], page?: ExcelPageInfo<T>) => Promise<unknown>
 }
 
 /**
  * Excel出力ボタン共通のプラン判定・ページ選択ロジック。
- * 3種類（標準・大写真・施工前後）のExportButtonで、plan判定・ページ選択・
+ * 3種類（標準・大写真・施工前後）のExcel出力ボタン（ExcelExportButton）で、
+ * 標準モード・Excel直接作成モードのどちらでも plan判定・ページ選択・
  * キャンセル処理が将来ズレないよう、ここに集約する。
  *
- * - pro：ページ引数を渡さず、従来通り全ページを一括出力する（既存動作と完全に同じ）
- * - free / ads_removed：
- *   - ページ数が0または1 → 制限をかけず、proと同じ「ページ引数なし」のパスで直接出力する
+ * 現在は全プランで全ページ出力が無料開放されている（canExportAllExcelPages が常に true）ため、
+ * ページ引数を渡さず、全ページを一括出力する。
+ * canExportAllExcelPages が false を返す場合の動き（将来のために残している）：
+ *   - ページ数が0または1 → 制限をかけず、「ページ引数なし」のパスで直接出力する
  *     （1ページしかない場合に無意味な選択操作をさせないため。0ページ時は既存の
  *       「出力対象写真なし」の表示と同一の結果になる）
  *   - ページ数が2以上 → 選択モーダルを開き、選んだページだけを出力する

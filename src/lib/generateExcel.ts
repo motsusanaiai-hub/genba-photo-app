@@ -1,4 +1,5 @@
 import { requireExportTargets } from '@/lib/exportGuard'
+import { completeExcelExport, newImageReport, type ExcelExportResult, type ImageReport } from '@/lib/excelImageReport'
 import { Workbook } from 'exceljs'
 import type { Border, Worksheet, Anchor } from 'exceljs'
 import type { Photo } from '@/types/photo'
@@ -6,6 +7,7 @@ import type { Project } from '@/types/project'
 import { PHASE_CONFIG } from '@/types/photo'
 import { photoStorage } from '@/lib/photoStorage'
 import { downloadCloudCompressed } from '@/lib/cloudSync'
+import { excelLedgerFileName } from '@/lib/excelFileName'
 
 // ─── レイアウト定数 ───────────────────────────────────────────
 //
@@ -14,15 +16,35 @@ import { downloadCloudCompressed } from '@/lib/cloudSync'
 //   余白: top/bottom 0.25" → 印刷高 = 11.69-0.50 = 11.19" = 806pt (72pt/inch)
 //
 //   COL_W = 54: 2列 × 54 × 7px = 756px → fitToWidth:1 の拡大率≈1.0
-//   H_IMAGE = 187: 3段 × (18+187+18+45) = 3×268 = 804pt ≤ 806pt
+//   H_IMAGE = 187: 3段 × (18+187+63) = 3×268 = 804pt ≤ 806pt
 //
-const ROWS_PER_PAIR  = 4   // 番号 / 画像 / フェーズ / コメント
+// 【Excel出力のフェーズ行の削除】以前は 番号 / 画像 / フェーズ(18pt) / コメント(45pt) の
+// 4行構成だったが、フェーズはシート名（施工前/施工中/施工後）で分かるため出力から外し、
+// その18ptをコメント欄に割り当てた（45pt → 63pt）。1組の高さ（268pt）・写真枠の寸法・
+// 画像の配置計算・印刷設定は変えていない（写真の行位置だけが1組あたり1行ずつ詰まる）。
+// ※ 高互換出力（Windows Helper 1.1.0）のテンプレートも同じ3行構成（番号 / 写真 / コメント）。
+//   Helper 1.0.0 のテンプレートだけが従来の4行構成（フェーズ行あり）のまま。
+//
+const ROWS_PER_PAIR  = 3   // 番号 / 画像 / コメント
 const PAIRS_PER_PAGE = 3   // 1ページあたり 2列×3段 = 最大6枚
 const COL_W          = 54  // 列幅（文字数）— A4印刷幅を自然に埋める値
 const H_NO           = 18  // 番号行の高さ（pt）
 const H_IMAGE        = 187 // 画像行 — A4高さを3段で割り切った残り
-const H_PHASE        = 18
-const H_COMMENT      = 45
+const H_COMMENT      = 63  // コメント行（固定。旧フェーズ行18ptを含む）
+
+/**
+ * 標準台帳の1組（番号 / 写真 / コメント）の寸法。
+ * 施工前後比較（generateBeforeAfterExcel.ts）が、写真枠・コメント欄を標準台帳と
+ * 完全に同じ寸法にするために参照する（値の定義元はここだけにする）。
+ */
+export const STANDARD_PAIR_LAYOUT = {
+  ROWS_PER_PAIR,
+  PAIRS_PER_PAGE,
+  COL_W,
+  H_NO,
+  H_IMAGE,
+  H_COMMENT,
+} as const
 
 const CELL_PADDING_PX = 4  // 写真枠の上下左右余白
 
@@ -228,12 +250,15 @@ export async function generateExcel(
   project: Project,
   photos: Photo[],
   page?: ExcelPageInfo<Photo>,
-): Promise<void> {
+): Promise<ExcelExportResult> {
   const target = requireExportTargets(project, photos)
-  const wb = await buildExcelWorkbook(target.project, target.photos, page)
+  const report = newImageReport()
+  const wb = await buildExcelWorkbook(target.project, target.photos, page, report)
   const buffer = await wb.xlsx.writeBuffer()
-  const safeName = project.name.replace(/[\\/:*?"<>|]/g, '_')
-  triggerDownload(buffer as ArrayBuffer, `${safeName}_工事写真台帳.xlsx`)
+  // 全ての写真が取得できなかった場合は、空欄だけのExcelをダウンロードしない
+  return completeExcelExport(report, () =>
+    triggerDownload(buffer as ArrayBuffer, excelLedgerFileName(project.name, 'standard')),
+  )
 }
 
 /**
@@ -246,6 +271,7 @@ export async function buildExcelWorkbook(
   project: Project,
   photos: Photo[],
   page?: ExcelPageInfo<Photo>,
+  report?: ImageReport,
 ): Promise<Workbook> {
   const wb = new Workbook()
   wb.creator = '現場フォト'
@@ -261,15 +287,15 @@ export async function buildExcelWorkbook(
 
     // シートをまたいで続き番号にするため、前のシートの枚数を累積オフセットとして渡す
     let photoOffset = 0
-    await buildPhotoSheet(wb, beforePhotos, '施工前', photoOffset)
+    await buildPhotoSheet(wb, beforePhotos, '施工前', photoOffset, report)
     photoOffset += beforePhotos.length
-    await buildPhotoSheet(wb, duringPhotos, '施工中', photoOffset)
+    await buildPhotoSheet(wb, duringPhotos, '施工中', photoOffset, report)
     photoOffset += duringPhotos.length
-    await buildPhotoSheet(wb, afterPhotos,  '施工後', photoOffset)
+    await buildPhotoSheet(wb, afterPhotos,  '施工後', photoOffset, report)
   } else {
     // 指定ページ1枚分のみ。表紙の写真枚数は「このExcelに実際に含まれる枚数」にする
     buildCoverSheet(wb, project, page.items.length)
-    await buildPhotoSheet(wb, page.items, PHASE_SHEET_NAMES[page.groupIndex], page.startNo - 1)
+    await buildPhotoSheet(wb, page.items, PHASE_SHEET_NAMES[page.groupIndex], page.startNo - 1, report)
   }
 
   return wb
@@ -285,6 +311,10 @@ export function buildCoverSheet(
 ): void {
   const ws = wb.addWorksheet('表紙')
   ws.columns = [{ width: 14 }, { width: 32 }]
+
+  // 用紙をA4縦に明示する（未指定だとExcelはLetterとして扱う）。余白・拡大縮小は既定のまま変えない。
+  ws.pageSetup.paperSize   = 9  // A4
+  ws.pageSetup.orientation = 'portrait'
 
   // タイトル（A1:B1 結合）
   ws.mergeCells('A1:B1')
@@ -332,6 +362,7 @@ async function buildPhotoSheet(
   photos: Photo[],
   sheetName: string,
   photoOffset: number,
+  report?: ImageReport,
 ): Promise<void> {
   const ws = wb.addWorksheet(sheetName)
   ws.columns = [{ width: COL_W }, { width: COL_W }]
@@ -347,6 +378,10 @@ async function buildPhotoSheet(
     top:  0.25, bottom: 0.25,
     header: 0.1, footer: 0.1,
   }
+  // 用紙幅に合わせる縮小（2列756px → 印刷幅約755px、およそ99%）で生じる余りが
+  // 下側にだけ寄らないよう、用紙の上下左右の中央に配置する（拡大縮小・写真の配置は変えない）。
+  ws.pageSetup.horizontalCentered = true
+  ws.pageSetup.verticalCentered   = true
 
   if (photos.length === 0) {
     const c = ws.getCell('A1')
@@ -365,23 +400,18 @@ async function buildPhotoSheet(
     const right = photos[i * 2 + 1] as Photo | undefined
     const rNo   = i * ROWS_PER_PAIR + 1      // 1-indexed 番号行
 
-    // 行の高さ（空枠でも維持）
+    // 行の高さ（空枠でも維持。コメント行も固定高さで、内容に応じた自動調整はしない）
     ws.getRow(rNo + 0).height = H_NO
     ws.getRow(rNo + 1).height = H_IMAGE
-    ws.getRow(rNo + 2).height = H_PHASE
-    ws.getRow(rNo + 3).height = H_COMMENT
+    ws.getRow(rNo + 2).height = H_COMMENT
 
     // 番号行：写真がある枠のみ番号表示、空枠は空白
     tc(ws, rNo,   1, left  ? `No.${photoOffset + i * 2 + 1}` : '', true, 'center')
     tc(ws, rNo,   2, right ? `No.${photoOffset + i * 2 + 2}` : '', true, 'center')
 
-    // フェーズ行
-    tc(ws, rNo+2, 1, phaseLabel(left),  false, 'center')
-    tc(ws, rNo+2, 2, phaseLabel(right), false, 'center')
-
-    // コメント行（折り返しあり）
-    tc(ws, rNo+3, 1, left?.comment  ?? '', false, 'left', true)
-    tc(ws, rNo+3, 2, right?.comment ?? '', false, 'left', true)
+    // コメント行（横：左寄せ / 縦：中央 / 折り返しあり）
+    tc(ws, rNo+2, 1, left?.comment  ?? '', false, 'left', true)
+    tc(ws, rNo+2, 2, right?.comment ?? '', false, 'left', true)
 
     // 画像行の外枠：写真あり・空枠問わず常に表示
     ws.getCell(rNo+1, 1).border = BOX
@@ -390,21 +420,21 @@ async function buildPhotoSheet(
     // 写真埋め込み（写真がある場合のみ）
     const row0 = i * ROWS_PER_PAIR + 1  // 0-indexed（画像配置用）
     if (left) {
-      await embedImage(wb, ws, left, {
+      await embedImageTracked(wb, ws, left, {
         col0: 0, row0,
         widthPx: colWidthToPx(COL_W), heightPx: rowHeightToPx(H_IMAGE),
-      })
+      }, `No.${photoOffset + i * 2 + 1}`, report)
     }
     if (right) {
-      await embedImage(wb, ws, right, {
+      await embedImageTracked(wb, ws, right, {
         col0: 1, row0,
         widthPx: colWidthToPx(COL_W), heightPx: rowHeightToPx(H_IMAGE),
-      })
+      }, `No.${photoOffset + i * 2 + 2}`, report)
     }
 
-    // 3段（6枚）ごとに改ページ。最後のペアは除く。
+    // 3段（6枚）ごとに改ページ（各組の最終行＝コメント行の後）。最後のペアは除く。
     if ((i + 1) % PAIRS_PER_PAGE === 0 && i < totalPairs - 1) {
-      ws.getRow(rNo + 3).addPageBreak()
+      ws.getRow(rNo + ROWS_PER_PAIR - 1).addPageBreak()
     }
   }
 }
@@ -419,10 +449,11 @@ export function tc(
   bold: boolean,
   align: 'left' | 'center' | 'right',
   wrap = false,
+  size = 9,
 ): void {
   const cell = ws.getCell(row, col)
   cell.value = value
-  cell.font  = { bold, size: 9 }
+  cell.font  = { bold, size }
   cell.alignment = { horizontal: align, vertical: 'middle', wrapText: wrap }
   cell.border = BOX
 }
@@ -438,10 +469,10 @@ export async function embedImage(
   ws: Worksheet,
   photo: Photo,
   frame: CellFrame,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const base64 = await photoToJpegBase64(photo)
-    if (!base64) return
+    if (!base64) return false
 
     const imageId = wb.addImage({ base64, extension: 'jpeg' })
     const { from, to } = calcImagePlacement(frame, photo.width, photo.height)
@@ -451,9 +482,30 @@ export async function embedImage(
       br: to as unknown as Anchor,
       editAs: 'oneCell',
     })
+    return true
   } catch {
-    // 画像埋め込み失敗は無視して出力を継続
+    // 画像の埋め込みに失敗しても出力は継続する（その枠は空欄になる）。
+    // 失敗は呼び出し側が記録して利用者へ知らせる
+    return false
   }
+}
+
+/**
+ * embedImage に、取得結果の記録を加えたもの（標準・大判・施工前後で共通）。
+ * label は Excel 上の表記（No.12 など）。埋め込めなかった写真を report.missing に残す。
+ */
+export async function embedImageTracked(
+  wb: Workbook,
+  ws: Worksheet,
+  photo: Photo,
+  frame: CellFrame,
+  label: string,
+  report?: ImageReport,
+): Promise<void> {
+  const ok = await embedImage(wb, ws, photo, frame)
+  if (!report) return
+  report.total++
+  if (!ok) report.missing.push({ photoId: photo.id, label })
 }
 
 // ─── 画像変換ユーティリティ ───────────────────────────────────
@@ -474,22 +526,32 @@ async function photoToJpegBase64(photo: Photo): Promise<string | null> {
  * 3rd: 原本から 600px にリサイズ / 4th: thumbnail_data_url
  */
 export async function getPhotoJpegBlob(photo: Photo): Promise<Blob | null> {
+  // 各段階が例外で失敗しても、次の段階で取得できれば成功として扱う（取得の優先順位は変えない）
   try {
     const compressedBlob = await photoStorage.getCompressedBlob(photo.id)
     if (compressedBlob) return compressedBlob
+  } catch { /* 次の取得方法へ */ }
 
-    if (photo.storage_path) {
+  if (photo.storage_path) {
+    try {
       const cloudBlob = await downloadCloudCompressed(photo.storage_path)
       if (cloudBlob) return cloudBlob
-    }
+    } catch { /* 次の取得方法へ */ }
+  }
 
+  try {
     const url = await photoStorage.getObjectURL(photo.id)
     if (url) {
-      const blob = await urlToJpegBlob(url, 600)
-      URL.revokeObjectURL(url)
-      return blob
+      try {
+        const blob = await urlToJpegBlob(url, 600)
+        if (blob) return blob
+      } finally {
+        URL.revokeObjectURL(url)
+      }
     }
+  } catch { /* 次の取得方法へ */ }
 
+  try {
     return await dataUrlToJpegBlob(photo.thumbnail_data_url)
   } catch {
     return null

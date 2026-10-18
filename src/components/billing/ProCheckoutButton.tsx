@@ -11,6 +11,9 @@ interface Props {
 }
 
 /**
+ * 【現在どの画面にも配置していない】Proプランは廃止した（現場フォトは広告付きの完全無料アプリ）。
+ * 新規購入は API（create-pro-checkout-session）側でも受付を終了している。将来の再利用に備えてコードだけ残している。
+ *
  * Proプラン（月額）の購入導線。
  *
  * VITE_PRO_CHECKOUT_ENABLED === 'true' のビルドでのみ表示する

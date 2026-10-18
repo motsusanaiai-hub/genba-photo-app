@@ -63,36 +63,33 @@ beforeEach(() => {
   useAuthStore.getState().setUser(null)
 })
 
-describe('AdSlot：プラン別の表示', () => {
-  it('free では自社広告を表示する', () => {
-    setPlan('free')
-    expect(text(render())).toContain(HOUSE_ADS.dashboard.headline)
-  })
-
-  it.each<Plan>(['ads_removed', 'pro'])('%s では何も描画しない（DOMを残さない）', (plan) => {
+// 完全無料化：現場フォトは広告付きの無料アプリで、広告は全ユーザー（全プラン）に表示する。
+describe('AdSlot：プラン別の表示（全プランで表示）', () => {
+  it.each<Plan>(['free', 'ads_removed', 'pro'])('%s でも自社広告を表示する', (plan) => {
     setPlan(plan)
-    expect(render()).toBe('')
+    expect(text(render())).toContain(HOUSE_ADS.dashboard.headline)
   })
 
   it.each<Plan>(['free', 'ads_removed', 'pro'])('%s の表示有無は既存の shouldShowAds と一致する', (plan) => {
     setPlan(plan)
+    expect(shouldShowAds(plan)).toBe(true)
     expect(render() !== '').toBe(shouldShowAds(plan))
   })
 
-  it('呼び出し側の余白クラスは広告を表示するときだけ付く', () => {
-    setPlan('free')
-    expect(render()).toContain('mt-6')
-    setPlan('pro')
-    expect(render()).not.toContain('mt-6')
+  it('呼び出し側の余白クラスは、どのプランでも広告と一緒に付く', () => {
+    for (const plan of ['free', 'ads_removed', 'pro'] as Plan[]) {
+      setPlan(plan)
+      expect(render()).toContain('mt-6')
+    }
   })
 })
 
 // pro_override（開発者・管理者用の恒久Pro）は DB の recompute_plan が plan='pro' にする（migration 0008）。
 // 画面は plan だけを読み、pro_override 列は authenticated に SELECT 権限も無い（migration 0009）。
 describe('AdSlot：pro_override（恒久Pro）のユーザー', () => {
-  it('pro_override で plan=pro になっているユーザーには広告を表示しない', () => {
+  it('pro_override で plan=pro になっているユーザーにも広告を表示する', () => {
     setPlan('pro')
-    expect(render()).toBe('')
+    expect(text(render())).toContain(HOUSE_ADS.dashboard.headline)
   })
 
   it('広告の表示判定は plan だけを見て、pro_override や課金テーブルを参照しない', () => {
@@ -108,31 +105,19 @@ describe('AdSlot：pro_override（恒久Pro）のユーザー', () => {
   })
 })
 
+// プラン自動更新（planRefresh）で plan が変わっても、広告の表示は変わらない。
 describe('AdSlot：プラン自動更新との連動', () => {
-  it('free → pro（Pro購入の反映）で広告が消える', async () => {
-    setPlan('free')
-    expect(render()).not.toBe('')
-    await refreshPlan(async () => 'pro')
-    expect(render()).toBe('')
-  })
-
-  it('free → ads_removed（広告削除の購入）で広告が消える', async () => {
-    setPlan('free')
-    await refreshPlan(async () => 'ads_removed')
-    expect(render()).toBe('')
-  })
-
-  it('pro → free（Pro契約の終了）で広告が表示される', async () => {
-    setPlan('pro')
-    expect(render()).toBe('')
-    await refreshPlan(async () => 'free')
+  it.each<[Plan, Plan]>([
+    ['free', 'pro'],
+    ['free', 'ads_removed'],
+    ['pro', 'free'],
+    ['pro', 'ads_removed'],
+  ])('%s → %s に変わっても、広告は表示されたまま', async (from, to) => {
+    setPlan(from)
     expect(text(render())).toContain(HOUSE_ADS.dashboard.headline)
-  })
-
-  it('pro → ads_removed（広告削除購入者のPro終了）では広告は表示されないまま', async () => {
-    setPlan('pro')
-    await refreshPlan(async () => 'ads_removed')
-    expect(render()).toBe('')
+    await refreshPlan(async () => to)
+    expect(useAuthStore.getState().user?.plan).toBe(to)
+    expect(text(render())).toContain(HOUSE_ADS.dashboard.headline)
   })
 })
 

@@ -1,14 +1,15 @@
 import { requireExportTargets } from '@/lib/exportGuard'
+import { completeExcelExport, newImageReport, type ExcelExportResult, type ImageReport } from '@/lib/excelImageReport'
 import { Workbook } from 'exceljs'
 import type { Photo } from '@/types/photo'
 import type { Project } from '@/types/project'
+import { excelLedgerFileName } from '@/lib/excelFileName'
 import {
   BOX,
   tc,
   buildCoverSheet,
-  embedImage,
+  embedImageTracked,
   triggerDownload,
-  phaseLabel,
   colWidthToPx,
   rowHeightToPx,
   buildExcelPages,
@@ -35,25 +36,40 @@ import {
 //   写真エリア = A（75文字 ≈ 525px、単一列）
 //   情報パネル = B〜D（33文字 ≈ 231px）
 //
-// 行高 H_ROW=13.5pt（Book1は15pt統一）で、1段=19行×13.5pt=256.5pt、
+// 行高：No.・階数・場所の3行は各19.5pt（読みやすさのため12ptの文字を入れる）、
+// コメント16行は 12.75pt と 12pt を交互に並べて合計198pt。
+// 1段=19行=58.5pt+198pt=256.5pt（以前の19行×13.5ptと同じ）、
 // 1ページ=3段=57行=769.5pt ≤ A4印刷可能高さ約805.68pt（11.19in, 余白0.20/0.20/0.25/0.25in）
 // となるよう、約36pt(4.5%)の安全マージンを確保しつつ、Book1.xlsxに近い
-// 高さを使い切るようにしている
+// 高さを使い切るようにしている（1ブロック・1ページの高さ、改ページ位置は変更前から不変）
 // （写真セルは縦結合のため、自動改ページが結合セルを分割できず段全体が
 //   次ページへ押し出される現象を避けるため、一定の余裕を持たせている）。
 //
-// 情報パネル（B〜D, ROWS_PER_BLOCK行）の行割り:
-//   0行目        : 写真No.（B:D結合）
-//   1行目        : 階数（ B=ラベル, C:D=値 ）
-//   2行目        : 場所（ B=ラベル, C:D=値 ）
-//   3行目        : フェーズ（ B=ラベル, C:D=値 ）
-//   4〜18行目    : コメント（B:D結合, 折り返し）
+// 情報パネル（B〜D, ROWS_PER_BLOCK行）の行割り（ブロック先頭からの行オフセット）:
+//   0行目        : 写真No.（B:D結合, 12pt太字・中央）
+//   1行目        : 階数（ B=ラベル12pt太字, C:D=値12pt ）
+//   2行目        : 場所（ B=ラベル12pt太字, C:D=値12pt ）
+//   3〜18行目    : コメント（B:D結合, 16行, 12pt・左寄せ・上下中央・折り返し, 高さ固定）
+// コメント16行は結合セルなので行ごとの高さの差は見えない。0.75pt（1px）単位の行高の制約から、
+// 合計を256.5ptに保つために12.75ptと12ptを交互に並べている。
 //
-// 将来「区分」等の項目を追加する場合は、ROW_COMMENT_START / COMMENT_ROWS を
+// 【Excel出力のフェーズ行の削除】以前は3行目に「フェーズ」（B=ラベル, C:D=値）があり、
+// コメントは4〜18行目（15行）だったが、フェーズはシート名（施工前/施工中/施工後）で
+// 分かるため出力から外し、その1行をコメントに割り当てた。1ブロック19行・行高・
+// 写真セル（A列19行結合）と画像の配置計算・印刷設定は変えていない。
+// ※ 高互換出力（Windows Helper 1.1.0）のテンプレートも同じ行割り（フェーズ行なし）。
+//   Helper 1.0.0 のテンプレートだけが従来の行割り（フェーズ行あり）のまま。
+//
+// 将来「区分」等の項目を追加する場合は、ROW_COMMENT_START を
 // 調整し見出し行を増やす（ROWS_PER_BLOCK=19は維持し、コメント行数を減らす）。
 const ROWS_PER_BLOCK  = 19
 const BLOCKS_PER_PAGE = 3
-const H_ROW = 13.5 // 全行共通の行高（pt）
+const H_INFO_ROW = 19.5 // No.・階数・場所の行高（pt）
+const COMMENT_ROWS = 16
+// コメント行：12.75pt（17px）と12pt（16px）を交互に8行ずつ＝198pt（264px）
+const COMMENT_ROW_HEIGHTS = Array.from({ length: COMMENT_ROWS }, (_, i) => (i % 2 === 0 ? 12.75 : 12))
+/** 1ブロック（19行）の各行の高さ（pt）。合計256.5pt。 */
+const BLOCK_ROW_HEIGHTS = [H_INFO_ROW, H_INFO_ROW, H_INFO_ROW, ...COMMENT_ROW_HEIGHTS]
 
 const COL_WIDTHS = [75, 11, 11, 11] // A(写真)〜D（合計108文字）
 
@@ -68,13 +84,14 @@ const INFO_COL_END   = 4 // D
 const ROW_NO       = 0
 const ROW_FLOOR    = 1
 const ROW_LOCATION = 2
-const ROW_PHASE    = 3
-const ROW_COMMENT_START = 4
+const ROW_COMMENT_START = 3
 
 // 写真セル（A列, 縦19行結合）はtwoCellAnchorのbr（右下セル）が正しい行に
 // 解決されるよう、行ごとの内訳を渡す（列は単一列のため内訳不要）。
+// 行高が均一ではないため、BLOCK_ROW_HEIGHTS から行ごとに換算する（合計は256.5pt=342px）。
 // 行高はpt→EMUが厳密な換算のため、列幅のような環境依存のズレは生じない。
-const PHOTO_ROW_HEIGHTS_PX = Array(ROWS_PER_BLOCK).fill(rowHeightToPx(H_ROW))
+const PHOTO_ROW_HEIGHTS_PX = BLOCK_ROW_HEIGHTS.map(rowHeightToPx)
+const PHOTO_FRAME_HEIGHT_PX = PHOTO_ROW_HEIGHTS_PX.reduce((a, b) => a + b, 0)
 
 // ─── メイン ──────────────────────────────────────────────────
 
@@ -87,12 +104,15 @@ export async function generateOneColumnExcel(
   project: Project,
   photos: Photo[],
   page?: ExcelPageInfo<Photo>,
-): Promise<void> {
+): Promise<ExcelExportResult> {
   const target = requireExportTargets(project, photos)
-  const wb = await buildOneColumnWorkbook(target.project, target.photos, page)
+  const report = newImageReport()
+  const wb = await buildOneColumnWorkbook(target.project, target.photos, page, report)
   const buffer = await wb.xlsx.writeBuffer()
-  const safeName = project.name.replace(/[\\/:*?"<>|]/g, '_')
-  triggerDownload(buffer as ArrayBuffer, `${safeName}_工事写真台帳(大判).xlsx`)
+  // 全ての写真が取得できなかった場合は、空欄だけのExcelをダウンロードしない
+  return completeExcelExport(report, () =>
+    triggerDownload(buffer as ArrayBuffer, excelLedgerFileName(project.name, 'large')),
+  )
 }
 
 /**
@@ -104,6 +124,7 @@ export async function buildOneColumnWorkbook(
   project: Project,
   photos: Photo[],
   page?: ExcelPageInfo<Photo>,
+  report?: ImageReport,
 ): Promise<Workbook> {
   const wb = new Workbook()
   wb.creator = '現場フォト'
@@ -119,15 +140,15 @@ export async function buildOneColumnWorkbook(
 
     // シートをまたいで続き番号にするため、前のシートの枚数を累積オフセットとして渡す
     let photoOffset = 0
-    await buildOneColumnSheet(wb, beforePhotos, '施工前', photoOffset)
+    await buildOneColumnSheet(wb, beforePhotos, '施工前', photoOffset, report)
     photoOffset += beforePhotos.length
-    await buildOneColumnSheet(wb, duringPhotos, '施工中', photoOffset)
+    await buildOneColumnSheet(wb, duringPhotos, '施工中', photoOffset, report)
     photoOffset += duringPhotos.length
-    await buildOneColumnSheet(wb, afterPhotos,  '施工後', photoOffset)
+    await buildOneColumnSheet(wb, afterPhotos,  '施工後', photoOffset, report)
   } else {
     // 指定ページ1枚分のみ。表紙の写真枚数は「このExcelに実際に含まれる枚数」にする
     buildCoverSheet(wb, project, page.items.length)
-    await buildOneColumnSheet(wb, page.items, PHASE_SHEET_NAMES[page.groupIndex], page.startNo - 1)
+    await buildOneColumnSheet(wb, page.items, PHASE_SHEET_NAMES[page.groupIndex], page.startNo - 1, report)
   }
 
   return wb
@@ -140,6 +161,7 @@ async function buildOneColumnSheet(
   photos: Photo[],
   sheetName: string,
   photoOffset: number,
+  report?: ImageReport,
 ): Promise<void> {
   const ws = wb.addWorksheet(sheetName)
   ws.columns = COL_WIDTHS.map((width) => ({ width }))
@@ -176,33 +198,28 @@ async function buildOneColumnSheet(
 
     // 行の高さ（空枠でも維持）
     for (let r = 0; r < ROWS_PER_BLOCK; r++) {
-      ws.getRow(rNo + r).height = H_ROW
+      ws.getRow(rNo + r).height = BLOCK_ROW_HEIGHTS[r]
     }
 
     // 写真No.
-    tc(ws, rNo + ROW_NO, INFO_COL_START, photo ? `No.${photoOffset + i + 1}` : '', true, 'center')
+    tc(ws, rNo + ROW_NO, INFO_COL_START, photo ? `No.${photoOffset + i + 1}` : '', true, 'center', false, 12)
     ws.mergeCells(rNo + ROW_NO, INFO_COL_START, rNo + ROW_NO, INFO_COL_END)
 
     // 階数
-    tc(ws, rNo + ROW_FLOOR, INFO_COL_START, '階数', true, 'left')
-    tc(ws, rNo + ROW_FLOOR, INFO_COL_VALUE, photo?.floor ?? '', false, 'center')
+    tc(ws, rNo + ROW_FLOOR, INFO_COL_START, '階数', true, 'left', false, 12)
+    tc(ws, rNo + ROW_FLOOR, INFO_COL_VALUE, photo?.floor ?? '', false, 'center', false, 12)
     ws.mergeCells(rNo + ROW_FLOOR, INFO_COL_VALUE, rNo + ROW_FLOOR, INFO_COL_END)
 
     // 場所
-    tc(ws, rNo + ROW_LOCATION, INFO_COL_START, '場所', true, 'left')
-    tc(ws, rNo + ROW_LOCATION, INFO_COL_VALUE, photo?.location ?? '', false, 'center')
+    tc(ws, rNo + ROW_LOCATION, INFO_COL_START, '場所', true, 'left', false, 12)
+    tc(ws, rNo + ROW_LOCATION, INFO_COL_VALUE, photo?.location ?? '', false, 'center', false, 12)
     ws.mergeCells(rNo + ROW_LOCATION, INFO_COL_VALUE, rNo + ROW_LOCATION, INFO_COL_END)
 
-    // フェーズ
-    tc(ws, rNo + ROW_PHASE, INFO_COL_START, 'フェーズ', true, 'left')
-    tc(ws, rNo + ROW_PHASE, INFO_COL_VALUE, phaseLabel(photo), false, 'center')
-    ws.mergeCells(rNo + ROW_PHASE, INFO_COL_VALUE, rNo + ROW_PHASE, INFO_COL_END)
-
-    // コメント（上揃え・折り返し）
+    // コメント（横：左寄せ / 縦：中央 / 折り返し。行高は固定のまま）
     const commentCell = ws.getCell(rNo + ROW_COMMENT_START, INFO_COL_START)
     commentCell.value = photo?.comment ?? ''
-    commentCell.font  = { size: 9 }
-    commentCell.alignment = { horizontal: 'left', vertical: 'top', wrapText: true }
+    commentCell.font  = { size: 12 }
+    commentCell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
     commentCell.border = BOX
     ws.mergeCells(rNo + ROW_COMMENT_START, INFO_COL_START, rNo + ROWS_PER_BLOCK - 1, INFO_COL_END)
 
@@ -212,12 +229,12 @@ async function buildOneColumnSheet(
 
     // 写真埋め込み（写真がある場合のみ）
     if (photo) {
-      await embedImage(wb, ws, photo, {
+      await embedImageTracked(wb, ws, photo, {
         col0: PHOTO_COL_START - 1, row0: rNo - 1,
         widthPx:  colWidthToPx(PHOTO_COLS),
-        heightPx: rowHeightToPx(ROWS_PER_BLOCK * H_ROW),
+        heightPx: PHOTO_FRAME_HEIGHT_PX,
         rowHeightsPx: PHOTO_ROW_HEIGHTS_PX,
-      })
+      }, `No.${photoOffset + i + 1}`, report)
     }
 
     // 3段ごとに改ページ。最後の段は除く。

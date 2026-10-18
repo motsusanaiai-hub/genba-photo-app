@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom'
 import { CheckCircle2, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/store/authStore'
-import { shouldShowAds } from '@/lib/plan'
 import { Button } from '@/components/ui/button'
 import type { Plan } from '@/types/auth'
 
@@ -43,8 +42,10 @@ export function CheckoutSuccessPage() {
       if (error || !profile) return false
 
       const plan = profile.plan as Plan
-      if (!shouldShowAds(plan)) {
+      if (plan !== 'free') {
         // free以外（ads_removed/pro）になっていれば購入が反映されている
+        // （広告の表示有無とは無関係に、購入履歴の反映だけを見る。新規購入は受付終了のため、
+        //   この画面は過去の決済・既存URLへの対応として残している）
         useAuthStore.getState().setUser({ ...currentUser, plan })
         return true
       }
@@ -90,9 +91,10 @@ export function CheckoutSuccessPage() {
         <>
           <CheckCircle2 className="h-10 w-10 text-green-600" />
           <div className="space-y-1">
-            <h1 className="text-base font-semibold">広告削除が完了しました</h1>
-            <p className="text-sm text-muted-foreground max-w-xs">
-              ご購入ありがとうございます。以降、広告は表示されません。
+            <h1 className="text-base font-semibold">お支払いを確認しました</h1>
+            <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+              現場フォトは、すべての機能を無料でご利用いただけるようになりました。
+              広告は引き続き表示されます。
             </p>
           </div>
           <Button asChild>

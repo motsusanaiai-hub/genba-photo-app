@@ -7,6 +7,7 @@ import { PROJECT, installFileReaderPolyfill, loginAs, makePhoto, makePhotoSet } 
 const mocks = vi.hoisted(() => ({
   reads: [] as string[],
   cloudReads: [] as string[],
+  realBlob: false,
   trigger: vi.fn<(blob: Blob, filename: string) => void>(),
 }))
 
@@ -14,6 +15,8 @@ vi.mock('@/lib/photoStorage', () => ({
   photoStorage: {
     getCompressedBlob: async (id: string) => {
       mocks.reads.push(`compressed:${id}`)
+      // Excel は画像を実際の Blob として読む（JSZip は Buffer を使う）
+      if (mocks.realBlob) return new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0xff, 0xd9])], { type: 'image/jpeg' })
       return Buffer.from(`c-${id}`) as unknown as Blob
     },
     getBlob: async (id: string) => {
@@ -60,6 +63,7 @@ beforeAll(() => {
 beforeEach(async () => {
   mocks.reads.length = 0
   mocks.cloudReads.length = 0
+  mocks.realBlob = false
   mocks.trigger.mockReset()
   downloads = []
   vi.stubGlobal('document', {
@@ -96,7 +100,7 @@ describe('他人の工事案件は出力できない（ユーザーBがAの工�
   it('Excel直接作成（genbafoto）：APIを呼ばず、ファイルも作らず、写真が無い場合と同じ結果（存在を知らせない）', async () => {
     const fetchImpl = vi.fn()
     const download = vi.fn()
-    const result = await generateGenbafotoJob(PROJECT, photos().map((p) => ({ ...p, storage_path: 'x/y.jpg' })), 'standard', {
+    const result = await generateGenbafotoJob(PROJECT, photos().map((p) => ({ ...p, storage_path: 'x/y.jpg' })), 'standard', undefined, {
       getAccessToken: async () => 'token',
       fetchImpl: fetchImpl as unknown as typeof fetch,
       download,
@@ -130,6 +134,7 @@ describe('本人の工事案件は出力できる（ユーザーAが再ログイ
   })
 
   it('標準Excel：出力される', async () => {
+    mocks.realBlob = true
     await generateExcel(PROJECT, makePhotoSet())
     expect(downloads).toHaveLength(1)
   })
@@ -143,7 +148,7 @@ describe('本人の工事案件は出力できる（ユーザーAが再ログイ
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       )
     })
-    const result = await generateGenbafotoJob(PROJECT, photos().map((p) => ({ ...p, storage_path: `${OWNER}/${p.id}.jpg` })), 'standard', {
+    const result = await generateGenbafotoJob(PROJECT, photos().map((p) => ({ ...p, storage_path: `${OWNER}/${p.id}.jpg` })), 'standard', undefined, {
       getAccessToken: async () => 'token',
       fetchImpl: fetchImpl as unknown as typeof fetch,
       now: () => new Date('2026-10-12T00:00:00.000Z'),

@@ -17,6 +17,10 @@ interface Props {
 }
 
 /**
+ * 【現在どの画面にも配置していない】Proプランは廃止し、既存の有料契約者もいないため、一般画面からは外した。
+ * 契約管理API（create-billing-portal-session）と、このコンポーネントのコードは、
+ * 過去のテスト決済や将来の再利用に備えて残している。
+ *
  * Proプラン（月額）の契約内容表示と、Stripe Customer Portal への導線。
  *
  * 表示条件は plan ではなく、本人の subscriptions に終了していない行があること

@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import type { ExcelPageInfo } from '@/lib/generateExcel'
-import { EXCEL_PAGE_LIMIT_MESSAGE } from '@/lib/plan'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -13,9 +12,11 @@ interface Props<T> {
 }
 
 /**
- * Free / ads_removed 向けのExcelページ選択モーダル。
+ * Excelページ選択モーダル。
  * 標準・大写真・施工前後の3レイアウトで共通利用する
  * （表示文言だけformatLabelで呼び出し側が調整する）。
+ * 現在は全ページ出力が全ユーザーに開放されているため開かれない（useExcelPageExport 参照）。
+ * 将来ページ単位で出力する用途に備えて残している。
  */
 export function ExcelPageSelectModal<T>({ pages, formatLabel, onSelect, onCancel }: Props<T>) {
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -27,7 +28,6 @@ export function ExcelPageSelectModal<T>({ pages, formatLabel, onSelect, onCancel
       <div className="relative bg-background w-full max-w-md rounded-t-2xl lg:rounded-2xl shadow-xl pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         <div className="px-4 pt-4 pb-3 border-b">
           <p className="text-sm font-semibold">出力するページを選択</p>
-          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{EXCEL_PAGE_LIMIT_MESSAGE}</p>
         </div>
 
         <div className="py-1 max-h-[50vh] overflow-y-auto">
