@@ -50,6 +50,12 @@ describe('ダッシュボード', () => {
     expect(source).toMatch(/<ManageSubscriptionCard\b/)
   })
 
+  it('契約管理カードに「Proプラン」「月額300円」を表示せず、「ご契約情報の確認・管理」を表示する', () => {
+    const card = readCode('src/components/billing/ManageSubscriptionCard.tsx')
+    expect(card).not.toMatch(/Proプラン|300円/)
+    expect(card).toContain('ご契約情報の確認・管理')
+  })
+
   it('広告の下の案内（フッター）に、モバイルのFABと重ならない下余白を付けている', () => {
     expect(source).toMatch(/<AdSlot\b/)
     expect(source).toMatch(/<footer className="[^"]*mb-24[^"]*lg:mb-6[^"]*"/)

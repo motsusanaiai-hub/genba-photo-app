@@ -196,7 +196,7 @@ describe('create-billing-portal-session', () => {
       const { res, result } = createResponse()
       await handler(authorizedRequest(), res)
       expect(result.statusCode).toBe(404)
-      expect(result.body).toEqual({ error: '管理できるProプランの契約が見つかりません' })
+      expect(result.body).toEqual({ error: '管理できる契約が見つかりません' })
       expect(mocks.stripe.customers.create).not.toHaveBeenCalled()
       expect(mocks.stripe.billingPortal.sessions.create).not.toHaveBeenCalled()
     })
