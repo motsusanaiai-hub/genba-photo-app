@@ -1,6 +1,8 @@
 import { useAuthStore } from '@/store/authStore'
 import { useFolderStore } from '@/store/folderStore'
 import { usePhotoStore } from '@/store/photoStore'
+import { useProjectStore } from '@/store/projectStore'
+import { filterOwnedProjectFolders, filterOwnedProjectPhotos, findOwnedProject, resolveOwnerId } from '@/lib/ownership'
 import { insertCloudFolders, updateCloudFolder, deleteCloudFolder } from '@/lib/cloudSync'
 import type { PhotoFolder } from '@/types/photo'
 
@@ -34,12 +36,19 @@ export type FolderDeleteMode = 'keepPhotos' | 'deletePhotos'
  */
 export function usePhotoFolders(projectId: string, removePhotos?: (ids: string[]) => Promise<void>) {
   const user = useAuthStore((s) => s.user)
+  const initialized = useAuthStore((s) => s.initialized)
+  const { projects } = useProjectStore()
   const { folders, addFolder, updateFolder, deleteFolder } = useFolderStore()
-  const { photos, updatePhoto } = usePhotoStore()
+  const { photos: allPhotos, updatePhoto } = usePhotoStore()
 
-  const projectFolders = folders
-    .filter((f) => f.project_id === projectId)
-    .sort((a, b) => a.sort_order - b.sort_order)
+  // 本人の工事案件の、本人のフォルダ・写真だけを扱う（他ユーザーの端末内データは見えず、操作もできない）
+  const ownerId = resolveOwnerId({ user, initialized })
+  const ownsProject = !!findOwnedProject(projects, projectId, ownerId)
+  const photos = filterOwnedProjectPhotos(allPhotos, projects, projectId, ownerId)
+
+  const projectFolders = filterOwnedProjectFolders(folders, projects, projectId, ownerId).sort(
+    (a, b) => a.sort_order - b.sort_order,
+  )
 
   const maxSortOrder = projectFolders.length
     ? Math.max(...projectFolders.map((f) => f.sort_order))
@@ -79,11 +88,12 @@ export function usePhotoFolders(projectId: string, removePhotos?: (ids: string[]
   }
 
   const createFolder = async (name: string, parentFolderId: string | null = null): Promise<PhotoFolder> => {
+    if (!ownerId || !ownsProject) throw new Error('この工事案件にはフォルダを作成できません')
     const now = new Date().toISOString()
     const folder: PhotoFolder = {
       id: crypto.randomUUID(),
       project_id: projectId,
-      user_id: user?.id ?? '',
+      user_id: ownerId,
       name,
       parent_folder_id: parentFolderId,
       sort_order: maxSortOrder + 1000,
@@ -96,6 +106,7 @@ export function usePhotoFolders(projectId: string, removePhotos?: (ids: string[]
   }
 
   const renameFolder = async (id: string, name: string) => {
+    if (!projectFolders.some((f) => f.id === id)) return
     updateFolder(id, { name })
     await updateCloudFolder(id, { name })
   }
@@ -114,6 +125,7 @@ export function usePhotoFolders(projectId: string, removePhotos?: (ids: string[]
   // photos.folder_id/previous_folder_id は on delete set null で自動的にnullへ戻る。
   // ローカルstateはこの連鎖を自動追従しないため、ここで明示的に同じ範囲を処理する。
   const removeFolder = async (id: string, mode: FolderDeleteMode = 'keepPhotos') => {
+    if (!projectFolders.some((f) => f.id === id)) return
     const idsToRemove = collectDescendantIds(projectFolders, id)
     const idsSet = new Set(idsToRemove)
 

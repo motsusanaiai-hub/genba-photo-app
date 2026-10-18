@@ -3,7 +3,7 @@ import { X } from 'lucide-react'
 import { PhaseBadge } from './PhaseBadge'
 import { PHASE_CONFIG, type Phase } from '@/types/photo'
 import type { Photo } from '@/types/photo'
-import { resolvePhotoThumbUrl } from '@/lib/cloudSync'
+import { PhotoImage } from './PhotoImage'
 import { cn } from '@/lib/utils'
 
 type TabFilter = 'all' | Phase | 'unclassified'
@@ -85,11 +85,10 @@ export function ReferencePhotoPicker({ photos, onSelect, onClose }: Props) {
                 onClick={() => onSelect(photo)}
                 className="aspect-square rounded-md overflow-hidden border-2 border-transparent hover:border-primary active:scale-95 transition-all relative"
               >
-                <img
-                  src={resolvePhotoThumbUrl(photo)}
+                <PhotoImage
+                  photo={photo}
                   alt={photo.original_filename}
                   className="w-full h-full object-cover"
-                  loading="lazy"
                 />
                 {photo.phase && (
                   <div className="absolute top-1 right-1">

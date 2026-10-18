@@ -1,7 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useCallback } from 'react'
 import { X, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'
-import { photoStorage } from '@/lib/photoStorage'
-import { resolvePhotoThumbUrl } from '@/lib/cloudSync'
+import { usePhotoDisplay } from '@/hooks/usePhotoDisplay'
 import { PhaseBadge } from './PhaseBadge'
 import type { Photo } from '@/types/photo'
 import { formatDate } from '@/utils/dateUtils'
@@ -15,33 +14,13 @@ interface Props {
 }
 
 export function PhotoLightbox({ photo, photos, onClose, onChange, onDelete }: Props) {
-  const [imageURL, setImageURL] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  // 画像の取得は写真ごとに管理され、写真を切り替える・閉じた後に完了した古い結果は反映されない
+  const { state: display, handleError: handleImageError } = usePhotoDisplay(photo)
+  const { url: imageURL, loading } = display
 
   const currentIndex = photos.findIndex((p) => p.id === photo.id)
   const hasPrev = currentIndex > 0
   const hasNext = currentIndex < photos.length - 1
-
-  // オリジナル画像を IndexedDB から取得。なければサムネイルを表示
-  useEffect(() => {
-    let revoke: string | null = null
-    setLoading(true)
-    setImageURL(null)
-
-    photoStorage.getObjectURL(photo.id).then((url) => {
-      if (url) {
-        revoke = url
-        setImageURL(url)
-      } else {
-        setImageURL(resolvePhotoThumbUrl(photo))
-      }
-      setLoading(false)
-    })
-
-    return () => {
-      if (revoke) URL.revokeObjectURL(revoke)
-    }
-  }, [photo.id, photo.thumbnail_data_url, photo.storage_path])
 
   const goPrev = useCallback(() => {
     if (hasPrev) onChange(photos[currentIndex - 1])
@@ -106,12 +85,17 @@ export function PhotoLightbox({ photo, photos, onClose, onChange, onDelete }: Pr
         {loading ? (
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-white border-t-transparent" />
         ) : (
-          <img
-            src={imageURL ?? resolvePhotoThumbUrl(photo)}
-            alt={photo.original_filename}
-            className="max-w-full max-h-full object-contain select-none"
-            draggable={false}
-          />
+          imageURL ? (
+            <img
+              src={imageURL}
+              alt={photo.original_filename}
+              className="max-w-full max-h-full object-contain select-none"
+              draggable={false}
+              onError={handleImageError}
+            />
+          ) : (
+            <p className="text-sm text-white/70">画像を表示できません</p>
+          )
         )}
 
         {/* ← ナビ */}

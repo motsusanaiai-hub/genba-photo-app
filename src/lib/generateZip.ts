@@ -1,3 +1,4 @@
+import { guardExportTargets } from '@/lib/exportGuard'
 import JSZip from 'jszip'
 import type { Photo } from '@/types/photo'
 import type { Project } from '@/types/project'
@@ -113,7 +114,10 @@ export async function generateZip(
   photos: Photo[],
   mode: ZipExportMode = 'compressed',
 ): Promise<ZipExportResult> {
-  const ordered = orderedPhotosForZip(photos)
+  // 他人の工事案件は出力しない（端末内の画像にも触れない）。他人の写真が混ざっていても含めない
+  const target = guardExportTargets(project, photos)
+  if (!target) return { created: false, missingOriginals: 0, missingCompressed: 0, totalPhotos: 0 }
+  const ordered = orderedPhotosForZip(target.photos)
   const totalPhotos = ordered.length
   const zip = new JSZip()
 

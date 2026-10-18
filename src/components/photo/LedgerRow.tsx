@@ -5,7 +5,7 @@ import { ChevronUp, ChevronDown, GripVertical } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PhaseBadge } from './PhaseBadge'
 import { TemplateDropdown } from './TemplateDropdown'
-import { resolvePhotoThumbUrl } from '@/lib/cloudSync'
+import { PhotoImage } from './PhotoImage'
 import type { Photo } from '@/types/photo'
 
 interface Props {
@@ -176,11 +176,10 @@ export function LedgerRow({
             )}
             aria-label={`写真 ${index + 1} を開く（ドラッグして並び替えも可能）`}
           >
-            <img
-              src={resolvePhotoThumbUrl(photo)}
+            <PhotoImage
+              photo={photo}
               alt={photo.original_filename}
               className="w-full h-full object-cover hover:opacity-90 transition-opacity"
-              loading="lazy"
             />
           </button>
 

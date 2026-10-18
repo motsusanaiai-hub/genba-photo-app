@@ -1,26 +1,9 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 import type { Project } from '@/types/project'
 import type { Photo, PhotoFolder } from '@/types/photo'
+import { COMPRESSED_BUCKET } from '@/lib/photoBucket'
+import { evictCloudPhotos, getCloudPhotoAccess } from '@/lib/cloudPhotoCache'
 
-const COMPRESSED_BUCKET = 'photo-compressed'
-
-// ─── Storage URL ────────────────────────────────────────────
-
-/** 公開バケット上の600px圧縮写真のURLを取得する（同期・即時利用可） */
-export function getCloudPhotoUrl(storagePath: string): string | null {
-  if (!supabase) return null
-  return supabase.storage.from(COMPRESSED_BUCKET).getPublicUrl(storagePath).data.publicUrl
-}
-
-/**
- * 一覧・台帳・ライトボックス等で表示するサムネイルURLを解決する。
- * 1st: ローカル端末で生成した base64（即時表示） / 2nd: Supabase Storage の公開URL（他端末分）
- */
-export function resolvePhotoThumbUrl(photo: Photo): string {
-  if (photo.thumbnail_data_url) return photo.thumbnail_data_url
-  if (photo.storage_path) return getCloudPhotoUrl(photo.storage_path) ?? ''
-  return ''
-}
 
 // ─── projects ───────────────────────────────────────────────
 
@@ -128,6 +111,8 @@ export async function deleteCloudProjectCascade(projectId: string): Promise<Dele
         console.error('[cloudSync] deleteCloudProjectCascade: storage remove failed:', projectId, chunk, error)
       }
     }
+    // 削除した画像の署名付きURL（メモリ上のキャッシュ）を捨てる
+    evictCloudPhotos(storagePaths)
   }
 
   // 3. photosレコード削除（project_idで限定。projectsのON DELETE CASCADEに任せず明示的に実行）
@@ -190,7 +175,7 @@ export async function fetchCloudPhotos(userId: string): Promise<Photo[]> {
     console.error('[cloudSync] fetchCloudPhotos failed:', error)
     return []
   }
-  // thumbnail_data_url はDBに無いため空文字で補完（表示は resolvePhotoThumbUrl が Storage URL にフォールバック）
+  // thumbnail_data_url はDBに無いため空文字で補完（表示は usePhotoImageSrc が、本人の認証でクラウドの画像を取得する）
   return (data ?? []).map((row) => ({ ...row, thumbnail_data_url: '' })) as Photo[]
 }
 
@@ -236,19 +221,17 @@ export async function removeCompressedFromCloud(storagePath: string): Promise<vo
   if (!isSupabaseConfigured || !supabase) return
   const { error } = await supabase.storage.from(COMPRESSED_BUCKET).remove([storagePath])
   if (error) console.error('[cloudSync] removeCompressedFromCloud failed:', error)
+  // 削除した画像の署名付きURL（メモリ上のキャッシュ）を捨てる
+  evictCloudPhotos([storagePath])
 }
 
-/** Excel/ZIP生成時、ローカルIndexedDBに無い写真（他端末アップロード分）をStorageから取得する */
+/**
+ * Excel/ZIP生成時、ローカルIndexedDBに無い写真（他端末アップロード分）をStorageから取得する。
+ * 公開URLは使わず、本人の認証で取得する（Storage が public でも private でも同じ）。署名付きURLの有効期限に
+ * 左右されないよう、URLではなく認証付きダウンロードで取得する。取得できなければ null。
+ */
 export async function downloadCloudCompressed(storagePath: string): Promise<Blob | null> {
-  const url = getCloudPhotoUrl(storagePath)
-  if (!url) return null
-  try {
-    const res = await fetch(url)
-    if (!res.ok) return null
-    return await res.blob()
-  } catch {
-    return null
-  }
+  return getCloudPhotoAccess().downloadBlob(storagePath)
 }
 
 // ─── photo_folders（未分類フォルダ） ─────────────────────────
